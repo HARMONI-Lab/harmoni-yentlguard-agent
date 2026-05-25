@@ -13,6 +13,9 @@ Commands:
 
     report      Alias for analyze (backward compatibility).
 
+    agent       Launch the YentlGuard ADK agent for interactive experiment
+                planning, analysis, and hypothesis interpretation.
+
 Usage:
     yentlguard baseline --model gemini-2.5-pro --budget medium
 
@@ -25,10 +28,13 @@ Usage:
         --model gemini-3.1-pro --budget low medium high \\
         --variants male female nb_label_only
 
-yentlguard analyze \\
-    --run-ids <run_id_1> <run_id_2> \\
-    --output results/ \\
-    --register-eval
+    yentlguard analyze \\
+        --run-ids <run_id_1> <run_id_2> \\
+        --output results/ \\
+        --register-eval
+
+    yentlguard agent                        # launches adk web (browser UI)
+    yentlguard agent --query "..."          # single-turn, prints and exits
 """
 
 import argparse
@@ -156,7 +162,8 @@ def cmd_baseline(args: argparse.Namespace) -> None:
             )
 
     logger.info("Baseline run complete. Spans available in Phoenix project: yentlguard")
-    provider.shutdown()
+    if provider:
+        provider.shutdown()
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -218,11 +225,11 @@ def cmd_run(args: argparse.Namespace) -> None:
             for variant in args.variants:
                 vignettes_df = df_all[df_all["gender_variant"] == variant]
                 completed = _get_completed_vignettes(args.model, budget, variant)
-                
+
                 if completed:
                     vignettes_df = vignettes_df[~vignettes_df["source_stay_id"].astype(int).astype(str).isin(completed)]
                     logger.info("Skipped %d already completed vignettes.", len(completed))
-                    
+
                 if vignettes_df.empty:
                     logger.info("All vignettes already completed for model=%s | budget=%s | variant=%s. Skipping.", args.model, budget, variant)
                     continue
@@ -268,7 +275,8 @@ def cmd_run(args: argparse.Namespace) -> None:
                         )
 
     logger.info("Run complete. Query results: SELECT * FROM `%s` WHERE run_id = '%s'", "runs", run_id)
-    provider.shutdown()
+    if provider:
+        provider.shutdown()
 
 
 def cmd_report(args: argparse.Namespace) -> None:
@@ -361,6 +369,70 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     print(f"\n  HTML report → {html_path}")
     print(f"  CSVs        → {output_path}")
     print("─" * 60 + "\n")
+
+
+def cmd_agent(args: argparse.Namespace) -> None:
+    """
+    Launch the YentlGuard ADK agent.
+
+    Without --query: opens adk web (browser UI) — recommended for interactive
+    analysis sessions where you want to explore results, ask follow-up questions,
+    or plan follow-up experiments.
+
+    With --query TEXT: runs a single agent turn and exits. Useful for scripting
+    or one-shot questions (e.g. from a Makefile or CI step).
+    """
+    import asyncio
+    import secrets
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    if args.query:
+        # Single-turn mode
+        from google.adk.runners import InMemoryRunner
+        from google.genai import types
+        from yentlguard.agent.yentlguard_agent.agent import root_agent
+
+        async def _run_single_turn(query: str) -> None:
+            runner = InMemoryRunner(agent=root_agent, app_name="yentlguard")
+            session_id = secrets.token_hex(8)
+            await runner.session_service.create_session(
+                app_name="yentlguard",
+                user_id="cli_user",
+                session_id=session_id,
+            )
+            async for event in runner.run_async(
+                user_id="cli_user",
+                session_id=session_id,
+                new_message=types.Content(
+                    role="user",
+                    parts=[types.Part(text=query)],
+                ),
+            ):
+                if hasattr(event, "content") and event.content:
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            print(part.text, end="", flush=True)
+            print()
+
+        asyncio.run(_run_single_turn(args.query))
+
+    else:
+        # Interactive adk web mode
+        agent_dir = str(
+            (
+                Path(__file__).parent
+                / "agent"
+                / "yentlguard_agent"
+            ).resolve()
+        )
+        logger.info("Launching adk web → %s", agent_dir)
+        result = subprocess.run(
+            [sys.executable, "-m", "google.adk.cli", "web", agent_dir],
+            check=False,
+        )
+        sys.exit(result.returncode)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -465,6 +537,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--notes", default=None)
     p_report.set_defaults(func=cmd_report)
 
+    # ── agent ─────────────────────────────────────────────────────────────────
+    p_agent = sub.add_parser(
+        "agent",
+        help=(
+            "Launch the YentlGuard ADK agent. "
+            "Omit --query to open adk web (browser UI). "
+            "Pass --query TEXT for a single-turn CLI mode."
+        ),
+    )
+    p_agent.add_argument(
+        "--query", default=None,
+        metavar="TEXT",
+        help=(
+            "Run a single agent turn and exit. "
+            "Omit to launch the interactive adk web browser UI."
+        ),
+    )
+    p_agent.set_defaults(func=cmd_agent)
+
     return parser
 
 
@@ -472,6 +563,8 @@ def main() -> None:
     from yentlguard.config import validate
     parser = build_parser()
     args = parser.parse_args()
+    # agent command does its own config validation inside tool calls,
+    # not at startup — allows launching the agent even before GCP is configured.
     if args.command in ("run", "baseline", "analyze", "report"):
         try:
             validate()

@@ -35,10 +35,18 @@ dependencies = [
 
     # Gemini / Vertex AI
     "google-genai>=1.0.0",
-    "google-cloud-aiplatform>=1.112.0",          # Agent Builder / Agent Engine SDK
+    "google-cloud-aiplatform>=1.112.0",
 
-    # Observability
-    "arize-phoenix>=4.0.0",
+    # ADK — agent framework
+    # Requires Python >=3.10,<3.13 per ADK constraints; 3.11 satisfies both.
+    "google-adk>=1.32.0",
+
+    # Observability — phoenix.otel.register replaces manual OTLPSpanExporter setup.
+    # auto_instrument=True patches google-genai and google-adk SDKs in one call.
+    "arize-phoenix>=7.0",
+    "openinference-instrumentation-google-adk>=0.1.11",
+
+    # Retained for any direct OpenInference usage outside the agent layer.
     "openinference-instrumentation-google-genai>=0.1.0",
     "opentelemetry-sdk>=1.24.0",
     "opentelemetry-exporter-otlp-proto-http>=1.24.0",
@@ -50,13 +58,15 @@ dependencies = [
 
     # BigQuery + Agent Builder eval layer
     "google-cloud-bigquery>=3.20.0",
-    "google-cloud-bigquery-storage>=2.25.0",   # faster BQ reads via Arrow
-    "google-cloud-aiplatform>=1.112.0",
-    "pyarrow>=16.0.0",                          # BQ → DataFrame fast path
-    "db-dtypes>=1.1.0",                         # Needed for to_dataframe()
+    "google-cloud-bigquery-storage>=2.25.0",
+    "pyarrow>=16.0.0",
+    "db-dtypes>=1.1.0",
 
-    # MCP
+    # MCP (Python SDK — used by existing PhoenixMCPClient internals)
     "mcp>=1.0.0",
+
+    # Env var loading
+    "python-dotenv>=1.0.1",
 ]
 
 [project.optional-dependencies]
