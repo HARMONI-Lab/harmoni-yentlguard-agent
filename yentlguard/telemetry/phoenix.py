@@ -1,81 +1,77 @@
 """
-Arize Phoenix telemetry initialization.
+YentlGuard telemetry — Phoenix tracing via phoenix.otel.register.
 
-Sets up OpenInference auto-instrumentation for the Google GenAI SDK so that
-every Gemini API call — including full response metadata (logprobs,
-thoughts_token_count, safety_ratings) — streams into Phoenix as OTel spans.
+Replaces the previous manual OTLPSpanExporter + GoogleGenAIInstrumentor setup.
+phoenix.otel.register(auto_instrument=True) patches both the google-genai SDK
+and the google-adk SDK in a single call, which is required now that the agent
+layer uses ADK.
+
+Environment variables (unchanged from previous version):
+    PHOENIX_API_KEY              — Phoenix Cloud API key (format: px_live_...)
+    PHOENIX_COLLECTOR_ENDPOINT   — space-scoped OTLP endpoint
+                                   (e.g. https://app.phoenix.arize.com/s/your-space)
+    PHOENIX_PROJECT_NAME         — project tag on all spans (default: yentlguard)
 """
+
+from __future__ import annotations
 
 import logging
 import os
-
-from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk import trace as trace_sdk
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
+_provider: Any = None
+
 
 def setup_phoenix_tracing(
-    api_key: str | None = None,
-    collector_endpoint: str | None = None,
-    project_name: str = "yentlguard",
-) -> trace_sdk.TracerProvider:
+    project_name: str | None = None,
+    batch: bool = True,
+) -> Any:
     """
-    Initialize OpenInference instrumentation and wire it to Arize Phoenix.
-
-    Reads PHOENIX_API_KEY and PHOENIX_COLLECTOR_ENDPOINT from environment
-    if not passed explicitly. Must be called before any google.genai client
-    is instantiated so the instrumentor patches the SDK at import time.
+    Initialize Phoenix tracing. Idempotent — returns the existing provider on
+    subsequent calls.
 
     Parameters
     ----------
-    api_key:
-        Arize Phoenix API key. Falls back to PHOENIX_API_KEY env var.
-    collector_endpoint:
-        OTLP collector URL. Falls back to PHOENIX_COLLECTOR_ENDPOINT env var.
     project_name:
-        Tag applied to all spans for filtering inside Phoenix UI.
+        Phoenix project tag applied to all spans. Defaults to
+        PHOENIX_PROJECT_NAME env var, then "yentlguard".
+    batch:
+        True (default) for CLI runs — spans are batched before export.
+        False for interactive adk web sessions — flushes per turn.
 
     Returns
     -------
-    TracerProvider
-        The configured provider. Retain a reference if you need to force-flush
-        spans before process exit (call provider.force_flush()).
+    TracerProvider or None if PHOENIX_API_KEY is not set.
     """
-    api_key = api_key or os.environ.get("PHOENIX_API_KEY")
-    collector_endpoint = collector_endpoint or os.environ.get("PHOENIX_COLLECTOR_ENDPOINT")
+    global _provider
+    if _provider is not None:
+        return _provider
 
+    api_key = os.environ.get("PHOENIX_API_KEY", "").strip()
     if not api_key:
-        raise ValueError(
-            "Phoenix API key required. Set PHOENIX_API_KEY or pass api_key= explicitly."
+        logger.warning(
+            "PHOENIX_API_KEY not set — Phoenix tracing disabled. "
+            "Spans will not be exported."
         )
-    if not collector_endpoint:
-        raise ValueError(
-            "Phoenix collector endpoint required. "
-            "Set PHOENIX_COLLECTOR_ENDPOINT or pass collector_endpoint= explicitly."
-        )
+        return None
 
-    exporter = OTLPSpanExporter(
-        endpoint=f"{collector_endpoint.rstrip('/')}/v1/traces",
-        headers={"Authorization": f"Bearer {api_key}"},
+    from phoenix.otel import register
+
+    resolved_project = (
+        project_name
+        or os.environ.get("PHOENIX_PROJECT_NAME", "yentlguard")
     )
 
-    # Attach project tag to all spans via resource attributes
-    from opentelemetry.sdk.resources import Resource
-    resource = Resource.create({"project.name": project_name})
-
-    provider = trace_sdk.TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(exporter))
-
-    # Patch the google-genai SDK so every call captures full response metadata.
-    # This must happen before client instantiation.
-    GoogleGenAIInstrumentor().instrument(tracer_provider=provider)
+    _provider = register(
+        project_name=resolved_project,
+        batch=batch,
+        auto_instrument=True,
+        verbose=False,
+    )
 
     logger.info(
-        "YentlGuard → Phoenix tracing active. Project: %s. Endpoint: %s",
-        project_name,
-        collector_endpoint,
+        "YentlGuard → Phoenix tracing active. Project: %s", resolved_project
     )
-    return provider
+    return _provider
