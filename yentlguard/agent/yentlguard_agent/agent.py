@@ -16,12 +16,14 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from functools import cached_property
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[4] / ".env")
 
 from yentlguard.telemetry.phoenix import setup_phoenix_tracing
+from yentlguard.config import GCP_PROJECT_ID, GCP_LOCATION
 
 # batch=False: flush spans per turn for interactive adk web sessions.
 # CLI runs (yentlguard run, yentlguard baseline) keep batch=True via their
@@ -30,6 +32,8 @@ setup_phoenix_tracing(batch=False)
 
 from google.adk.agents import Agent
 from google.adk.tools import FunctionTool
+from google.adk.models import Gemini
+from google.genai import Client
 
 from yentlguard.agent.yentlguard_agent.mcp_config import build_phoenix_mcp_toolset
 from yentlguard.agent.yentlguard_agent.prompt import SYSTEM_INSTRUCTION
@@ -49,6 +53,15 @@ from yentlguard.agent.yentlguard_agent.tools.runner_tools import (
 logger = logging.getLogger(__name__)
 
 _model = os.environ.get("GEMINI_MODEL", "gemini-2.5-pro")
+
+class VertexGemini(Gemini):
+    @cached_property
+    def api_client(self) -> Client:
+        return Client(
+            vertexai=True,
+            project=GCP_PROJECT_ID,
+            location=GCP_LOCATION,
+        )
 
 _tools = [
     FunctionTool(func=query_bigquery),
@@ -72,7 +85,7 @@ else:
     )
 
 root_agent = Agent(
-    model=_model,
+    model=VertexGemini(model=_model),
     name="yentlguard_agent",
     instruction=SYSTEM_INSTRUCTION,
     tools=_tools,

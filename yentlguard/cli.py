@@ -163,7 +163,7 @@ def cmd_baseline(args: argparse.Namespace) -> None:
 
     logger.info("Baseline run complete. Spans available in Phoenix project: yentlguard")
     if provider:
-        provider.shutdown()
+        provider.force_flush()
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -276,7 +276,7 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     logger.info("Run complete. Query results: SELECT * FROM `%s` WHERE run_id = '%s'", "runs", run_id)
     if provider:
-        provider.shutdown()
+        provider.force_flush()
 
 
 def cmd_report(args: argparse.Namespace) -> None:
