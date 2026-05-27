@@ -86,41 +86,6 @@ class PhoenixMCPClient:
         model_version: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
-        """Not supported via BigQuery bypass."""
-        raise NotImplementedError("get_span_history requires full MCP, which is currently unsupported.")
-
-        if not spans:
-            raise ValueError(
-                f"No Phoenix spans found for vignette_id={vignette_id}, "
-                f"variant={variant}. Run the baseline command first."
-            )
-
-        delta_m_values = [
-            s.get("attributes", {}).get("yentlguard.delta_m")
-            for s in spans
-            if isinstance(s, dict) and s.get("attributes", {}).get("yentlguard.delta_m") is not None
-        ]
-
-        if not delta_m_values:
-            raise ValueError(
-                f"Spans found for {vignette_id}/{variant} but none contain "
-                f"yentlguard.delta_m attribute. Verify YentlGuard span annotation."
-            )
-
-        mean_delta_m = sum(delta_m_values) / len(delta_m_values)
-        logger.debug(
-            "Phoenix baseline: vignette=%s variant=%s delta_m=%.4f (n=%d spans)",
-            vignette_id, variant, mean_delta_m, len(delta_m_values),
-        )
-        return mean_delta_m
-
-    def get_span_history(
-        self,
-        vignette_id: str,
-        variant: str | None = None,
-        model_version: str | None = None,
-        limit: int = 100,
-    ) -> list[dict]:
         """
         Return raw span records for a vignette for broader analysis.
 
