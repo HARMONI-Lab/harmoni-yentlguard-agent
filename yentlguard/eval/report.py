@@ -499,12 +499,24 @@ def generate_html_report(
         "h1",
     ))
 
+    h2_content = _df_to_html(result.h2_tar_friction)
+    if result.h2_tar_friction.empty:
+        h2_content = (
+            '<div class="metric-card" style="border-left-color: var(--gray);">'
+            '<span class="card-label">TAR Undefined</span>'
+            '<p style="color: var(--text2); margin-top: 8px;">'
+            'Thought Allocation Ratio (TAR) requires a thinking budget. '
+            'The models in this analysis were run with <code>thinking_budget=None</code>, '
+            'so TAR and cognitive friction cannot be measured.</p>'
+            '</div>'
+        )
+
     sections.append(_section(
         "H2 — Demographic Cognitive Friction",
         "Does the presence of a demographic label trigger higher Thought Allocation Ratio? "
         "If female chest-pain presentations produce higher TAR than male presentations, "
         "the model is spending more reasoning compute reconciling demographic schema before committing.",
-        _df_to_html(result.h2_tar_friction),
+        h2_content,
         "h2",
     ))
 
