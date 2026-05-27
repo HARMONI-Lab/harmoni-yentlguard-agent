@@ -274,6 +274,8 @@ class BQWriter:
         self._phoenix_registry = phoenix_experiment_registry
         self._buffer: list[dict] = []
         self._buffer_size = 100  # reduced from 500 for research use
+        self.dlq_count = 0
+        self.dlq_path = pathlib.Path(f"yentlguard_dlq_{self.run_id}.jsonl")
 
     def write(
         self,
@@ -310,14 +312,14 @@ class BQWriter:
                 "BigQuery insert errors (%d rows): %s",
                 len(self._buffer), errors,
             )
-            dlq_path = pathlib.Path(f"yentlguard_dlq_{self.run_id}.jsonl")
-            with dlq_path.open("a", encoding="utf-8") as f:
+            self.dlq_count += len(self._buffer)
+            with self.dlq_path.open("a", encoding="utf-8") as f:
                 for row in self._buffer:
                     f.write(json.dumps(row, default=str) + "\n")
             logger.warning(
                 "Failed rows → DLQ: %s (%d rows). "
                 "Re-ingest: bq load --source_format=NEWLINE_DELIMITED_JSON %s %s",
-                dlq_path, len(self._buffer), RUNS_TABLE, dlq_path,
+                self.dlq_path, len(self._buffer), RUNS_TABLE, self.dlq_path,
             )
         else:
             logger.info(
@@ -364,8 +366,8 @@ class BQWriter:
         errors = self._client.insert_rows_json(EXPTS_TABLE, [row])
         if errors:
             logger.error("Experiment registration failed: %s", errors)
-            dlq_path = pathlib.Path(f"yentlguard_dlq_{self.run_id}.jsonl")
-            with dlq_path.open("a", encoding="utf-8") as f:
+            self.dlq_count += 1
+            with self.dlq_path.open("a", encoding="utf-8") as f:
                 f.write(
                     json.dumps(
                         {"table": "experiments", "row": row}, default=str
@@ -396,6 +398,15 @@ class BQWriter:
 
     def __exit__(self, *_) -> None:
         self.flush()
+        if self.dlq_count > 0:
+            import sys
+            print(
+                f"\n\033[91m\033[1mWARNING: {self.dlq_count} row(s) failed to insert into BigQuery.\033[0m\n"
+                f"These rows were saved to a dead-letter queue: \033[93m{self.dlq_path.absolute()}\033[0m\n"
+                f"To re-ingest them later, run:\n"
+                f"    \033[96mbq load --source_format=NEWLINE_DELIMITED_JSON {RUNS_TABLE} {self.dlq_path}\033[0m\n",
+                file=sys.stderr
+            )
 
 
 def _safe_version(package: str) -> str | None:
