@@ -70,10 +70,6 @@ def run_to_rows(
 ) -> list[dict]:
     """
     Convert a VignetteRun to one or two BigQuery row dicts.
-
-    raw_text_pass* fields are intentionally excluded from BQ rows —
-    they are written to Phoenix spans via enrich_generation_span in runner.py.
-    Phoenix is the right store for variable-length text; BQ is for metrics.
     """
     now = datetime.now(timezone.utc).isoformat()
     base = {
@@ -114,6 +110,7 @@ def run_to_rows(
     pass1["esi_direction_error"] = _esi_direction_error(
         run.pass1_esi, esi_ground_truth
     )
+    pass1["raw_text"] = run.raw_text_pass1
 
     if run.pass1_delta_m:
         dm = run.pass1_delta_m
@@ -151,6 +148,7 @@ def run_to_rows(
         pass2["esi_direction_error"] = _esi_direction_error(
             run.pass2_esi, esi_ground_truth
         )
+        pass2["raw_text"] = run.raw_text_pass2
 
         dm2 = run.pass2_delta_m
         pass2["delta_m"] = dm2.delta_m
@@ -188,6 +186,7 @@ def run_to_rows(
         pass2["recovery_class_3a"] = _recovery_class(
             run.crr_distractor_a.crr if run.crr_distractor_a else None
         )
+        pass2["raw_text_pass3a"] = run.raw_text_pass3a
 
         # Distractor B
         pass2["delta_m_pass3b"] = (
@@ -203,6 +202,7 @@ def run_to_rows(
         pass2["recovery_class_3b"] = _recovery_class(
             run.crr_distractor_b.crr if run.crr_distractor_b else None
         )
+        pass2["raw_text_pass3b"] = run.raw_text_pass3b
 
         # Distractor C
         pass2["delta_m_pass3c"] = (
@@ -218,6 +218,7 @@ def run_to_rows(
         pass2["recovery_class_3c"] = _recovery_class(
             run.crr_distractor_c.crr if run.crr_distractor_c else None
         )
+        pass2["raw_text_pass3c"] = run.raw_text_pass3c
 
         # Sycophancy summary
         distractor_crrs = [

@@ -75,6 +75,8 @@ RUNS_SCHEMA = [
         description="Token position where the ESI digit appeared."),
     bigquery.SchemaField("is_low_confidence", "BOOL", mode="NULLABLE",
         description="True if delta_m < configured threshold (default 1.0 nat)."),
+    bigquery.SchemaField("raw_text", "STRING", mode="NULLABLE",
+        description="Raw output text from the model generation."),
 
     # ── TAR (Pass 1 only; null on Pass 2 by design) ───────────────────────
     bigquery.SchemaField("tar", "FLOAT64", mode="NULLABLE",
@@ -132,6 +134,8 @@ RUNS_SCHEMA = [
         description="True if Pass 3a ESI differs from Pass 1."),
     bigquery.SchemaField("recovery_class_3a", "STRING", mode="NULLABLE",
         description="full/partial/failed for distractor A."),
+    bigquery.SchemaField("raw_text_pass3a", "STRING", mode="NULLABLE",
+        description="Raw output text from the Pass 3a distractor generation."),
 
     bigquery.SchemaField("delta_m_pass3b", "FLOAT64", mode="NULLABLE",
         description="ΔM from Pass 3b: Forced Parsing Anchor distractor."),
@@ -143,6 +147,8 @@ RUNS_SCHEMA = [
         description="True if Pass 3b ESI differs from Pass 1."),
     bigquery.SchemaField("recovery_class_3b", "STRING", mode="NULLABLE",
         description="full/partial/failed for distractor B."),
+    bigquery.SchemaField("raw_text_pass3b", "STRING", mode="NULLABLE",
+        description="Raw output text from the Pass 3b distractor generation."),
 
     bigquery.SchemaField("delta_m_pass3c", "FLOAT64", mode="NULLABLE",
         description="ΔM from Pass 3c: Protocol Anchor distractor."),
@@ -154,6 +160,8 @@ RUNS_SCHEMA = [
         description="True if Pass 3c ESI differs from Pass 1."),
     bigquery.SchemaField("recovery_class_3c", "STRING", mode="NULLABLE",
         description="full/partial/failed for distractor C."),
+    bigquery.SchemaField("raw_text_pass3c", "STRING", mode="NULLABLE",
+        description="Raw output text from the Pass 3c distractor generation."),
 
     # Sycophancy summary — computed at write time for fast querying
     bigquery.SchemaField("max_distractor_crr", "FLOAT64", mode="NULLABLE",

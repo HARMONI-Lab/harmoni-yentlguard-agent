@@ -265,6 +265,7 @@ def enrich_generation_span(
     delta_m_result: DeltaMResult | None = None,
     tar_result: TARResult | None = None,
     clinical_category: str | None = None,
+    raw_text: str | None = None,
 ) -> None:
     """
     Enrich the active OpenInference generation span with YentlGuard metadata.
@@ -286,6 +287,8 @@ def enrich_generation_span(
     _safe_set(span, "yentlguard.thinking_budget", thinking_budget)
     _safe_set(span, "yentlguard.pass_number", pass_number)
     _safe_set(span, "yentlguard.clinical_category", clinical_category)
+    if raw_text is not None:
+        _safe_set(span, "yentlguard.raw_text", raw_text)
 
     if delta_m_result is not None:
         _set_delta_m_attributes(span, delta_m_result, prefix="yentlguard")

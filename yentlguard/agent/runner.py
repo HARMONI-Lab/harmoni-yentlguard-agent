@@ -332,6 +332,7 @@ class YentlGuardRunner:
                     pass_number=1,
                     delta_m_result=run.pass1_delta_m,
                     tar_result=run.pass1_tar,
+                    raw_text=run.raw_text_pass1,
                 )
 
             except Exception as e:
@@ -565,6 +566,7 @@ class YentlGuardRunner:
                     thinking_budget=self.thinking_budget,
                     pass_number=pass_num,
                     delta_m_result=dm_result,
+                    raw_text=raw_text,
                 )
                 with pass_metrics_span(pass_number=pass_num, delta_m_result=dm_result):
                     pass
