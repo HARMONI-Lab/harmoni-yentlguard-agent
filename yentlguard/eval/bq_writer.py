@@ -6,8 +6,14 @@ into the runs table after each vignette completes.
 
 Each VignetteRun produces either one row (Pass 1 only, gate did not fire)
 or two rows (Pass 1 + Pass 2) so both passes are queryable independently.
-This lets you compare ΔM distributions before and after intervention
-with a simple WHERE pass_number = 1 / 2 filter.
+
+Changes from original:
+    - raw_text_pass1 / raw_text_pass2 written to span attributes via
+      enrich_generation_span (Phoenix stores text; BQ stores metrics only).
+    - PhoenixExperimentRegistry.register() called from register_experiment()
+      so every BQ experiment batch also appears in Phoenix.
+    - prompt_version_ids from VignetteRun stored per row for cross-version
+      CRR comparison.
 """
 
 import json
@@ -25,27 +31,23 @@ logger = logging.getLogger(__name__)
 
 
 def _model_family(model_version: str) -> str:
-    """
-    Extract coarse model family for cross-generation GROUP BY.
-
-    gemini-2.5-pro     → gemini-2.5
-    gemini-3.1-pro     → gemini-3.1
-    gemini-3.5-pro     → gemini-3.5   (ready when it drops)
-    """
     parts = model_version.split("-")
-    # Format: gemini-{major}.{minor}-{variant}
     if len(parts) >= 3:
         return f"{parts[0]}-{parts[1]}"
     return model_version
 
 
-def _esi_direction_error(predicted: str | None, ground_truth: str | None) -> str | None:
+def _esi_direction_error(
+    predicted: str | None, ground_truth: str | None
+) -> str | None:
     if predicted is None or ground_truth is None:
         return None
-    p, g = int(predicted), int(ground_truth)
+    try:
+        p, g = int(predicted), int(ground_truth)
+    except ValueError:
+        return None
     if p == g:
         return None
-    # Lower ESI = more urgent. Predicting ESI 2 when truth is ESI 3 = over-triage.
     return "over_triage" if p < g else "under_triage"
 
 
@@ -69,18 +71,9 @@ def run_to_rows(
     """
     Convert a VignetteRun to one or two BigQuery row dicts.
 
-    Parameters
-    ----------
-    run:
-        Completed VignetteRun from YentlGuardRunner.
-    run_id:
-        Experiment batch UUID. Same across all vignettes in one experiment.
-    esi_ground_truth:
-        Ground truth ESI level from YentlBench for this vignette (1–5 as string).
-    clinical_category:
-        Clinical category tag, e.g. "chest_pain".
-    gate_threshold:
-        The ΔM threshold used for gate decisions in this run.
+    raw_text_pass* fields are intentionally excluded from BQ rows —
+    they are written to Phoenix spans via enrich_generation_span in runner.py.
+    Phoenix is the right store for variable-length text; BQ is for metrics.
     """
     now = datetime.now(timezone.utc).isoformat()
     base = {
@@ -98,6 +91,11 @@ def run_to_rows(
         "gate_threshold": gate_threshold,
         "baseline_delta_m": run.baseline_delta_m,
         "mcp_lookup_success": run.baseline_delta_m is not None,
+        # Phoenix prompt version tracking — None when using hardcoded defaults
+        "prompt_version_corrective": run.prompt_version_ids.get("corrective"),
+        "prompt_version_distractor_a": run.prompt_version_ids.get("distractor_a"),
+        "prompt_version_distractor_b": run.prompt_version_ids.get("distractor_b"),
+        "prompt_version_distractor_c": run.prompt_version_ids.get("distractor_c"),
         "errors": run.errors,
     }
 
@@ -110,34 +108,36 @@ def run_to_rows(
     pass1["esi_predicted"] = run.pass1_esi
     pass1["esi_correct"] = (
         run.pass1_esi == esi_ground_truth
-        if run.pass1_esi and esi_ground_truth else None
+        if run.pass1_esi and esi_ground_truth
+        else None
     )
-    pass1["esi_direction_error"] = _esi_direction_error(run.pass1_esi, esi_ground_truth)
+    pass1["esi_direction_error"] = _esi_direction_error(
+        run.pass1_esi, esi_ground_truth
+    )
 
     if run.pass1_delta_m:
         dm = run.pass1_delta_m
-        pass1["delta_m"]            = dm.delta_m
-        pass1["top_logprob"]        = dm.top_logprob
-        pass1["runner_up_token"]    = dm.runner_up_token
-        pass1["runner_up_logprob"]  = dm.runner_up_logprob
-        pass1["esi_token_index"]    = dm.token_index
-        pass1["is_low_confidence"]  = dm.is_low_confidence
+        pass1["delta_m"] = dm.delta_m
+        pass1["top_logprob"] = dm.top_logprob
+        pass1["runner_up_token"] = dm.runner_up_token
+        pass1["runner_up_logprob"] = dm.runner_up_logprob
+        pass1["esi_token_index"] = dm.token_index
+        pass1["is_low_confidence"] = dm.is_low_confidence
 
     if run.pass1_tar:
         tar = run.pass1_tar
-        pass1["tar"]                    = tar.tar
-        pass1["thoughts_token_count"]   = tar.thoughts_token_count
+        pass1["tar"] = tar.tar
+        pass1["thoughts_token_count"] = tar.thoughts_token_count
         pass1["candidates_token_count"] = tar.candidates_token_count
-        pass1["is_high_friction"]       = tar.is_high_friction
+        pass1["is_high_friction"] = tar.is_high_friction
 
-    # CRR fields are null on Pass 1
-    pass1["crr"]            = None
+    pass1["crr"] = None
     pass1["triage_changed"] = None
     pass1["recovery_class"] = None
 
     rows.append(pass1)
 
-    # ── Pass 2 row (only if intervention fired and Pass 2 completed) ───────
+    # ── Pass 2 row (only if gate fired and Pass 2 completed) ───────────────
     if run.intervention_triggered and run.pass2_delta_m is not None:
         pass2 = dict(base)
         pass2["row_id"] = str(uuid.uuid4())
@@ -145,65 +145,92 @@ def run_to_rows(
         pass2["esi_predicted"] = run.pass2_esi
         pass2["esi_correct"] = (
             run.pass2_esi == esi_ground_truth
-            if run.pass2_esi and esi_ground_truth else None
+            if run.pass2_esi and esi_ground_truth
+            else None
         )
-        pass2["esi_direction_error"] = _esi_direction_error(run.pass2_esi, esi_ground_truth)
+        pass2["esi_direction_error"] = _esi_direction_error(
+            run.pass2_esi, esi_ground_truth
+        )
 
         dm2 = run.pass2_delta_m
-        pass2["delta_m"]            = dm2.delta_m
-        pass2["top_logprob"]        = dm2.top_logprob
-        pass2["runner_up_token"]    = dm2.runner_up_token
-        pass2["runner_up_logprob"]  = dm2.runner_up_logprob
-        pass2["esi_token_index"]    = dm2.token_index
-        pass2["is_low_confidence"]  = dm2.is_low_confidence
+        pass2["delta_m"] = dm2.delta_m
+        pass2["top_logprob"] = dm2.top_logprob
+        pass2["runner_up_token"] = dm2.runner_up_token
+        pass2["runner_up_logprob"] = dm2.runner_up_logprob
+        pass2["esi_token_index"] = dm2.token_index
+        pass2["is_low_confidence"] = dm2.is_low_confidence
 
-        # TAR is null on Pass 2 by design
-        pass2["tar"]                    = None
-        pass2["thoughts_token_count"]   = None
+        pass2["tar"] = None
+        pass2["thoughts_token_count"] = None
         pass2["candidates_token_count"] = None
-        pass2["is_high_friction"]       = None
+        pass2["is_high_friction"] = None
 
         if run.crr:
-            pass2["crr"]            = run.crr.crr
+            pass2["crr"] = run.crr.crr
             pass2["triage_changed"] = run.crr.triage_changed
             pass2["recovery_class"] = _recovery_class(run.crr.crr)
         else:
-            pass2["crr"]            = None
+            pass2["crr"] = None
             pass2["triage_changed"] = None
             pass2["recovery_class"] = None
 
-        # ── Sycophancy control columns (Pass 3a/b/c) ──────────────────────
-        # Distractor A — Pure Clinical Anchor
-        pass2["delta_m_pass3a"]    = run.pass3a_delta_m.delta_m if run.pass3a_delta_m else None
-        pass2["esi_pass3a"]        = run.pass3a_esi
-        pass2["crr_distractor_a"]  = run.crr_distractor_a.crr if run.crr_distractor_a else None
-        pass2["triage_changed_3a"] = run.crr_distractor_a.triage_changed if run.crr_distractor_a else None
-        pass2["recovery_class_3a"] = _recovery_class(run.crr_distractor_a.crr) if run.crr_distractor_a else None
+        # Distractor A
+        pass2["delta_m_pass3a"] = (
+            run.pass3a_delta_m.delta_m if run.pass3a_delta_m else None
+        )
+        pass2["esi_pass3a"] = run.pass3a_esi
+        pass2["crr_distractor_a"] = (
+            run.crr_distractor_a.crr if run.crr_distractor_a else None
+        )
+        pass2["triage_changed_3a"] = (
+            run.crr_distractor_a.triage_changed if run.crr_distractor_a else None
+        )
+        pass2["recovery_class_3a"] = _recovery_class(
+            run.crr_distractor_a.crr if run.crr_distractor_a else None
+        )
 
-        # Distractor B — Forced Parsing Anchor
-        pass2["delta_m_pass3b"]    = run.pass3b_delta_m.delta_m if run.pass3b_delta_m else None
-        pass2["esi_pass3b"]        = run.pass3b_esi
-        pass2["crr_distractor_b"]  = run.crr_distractor_b.crr if run.crr_distractor_b else None
-        pass2["triage_changed_3b"] = run.crr_distractor_b.triage_changed if run.crr_distractor_b else None
-        pass2["recovery_class_3b"] = _recovery_class(run.crr_distractor_b.crr) if run.crr_distractor_b else None
+        # Distractor B
+        pass2["delta_m_pass3b"] = (
+            run.pass3b_delta_m.delta_m if run.pass3b_delta_m else None
+        )
+        pass2["esi_pass3b"] = run.pass3b_esi
+        pass2["crr_distractor_b"] = (
+            run.crr_distractor_b.crr if run.crr_distractor_b else None
+        )
+        pass2["triage_changed_3b"] = (
+            run.crr_distractor_b.triage_changed if run.crr_distractor_b else None
+        )
+        pass2["recovery_class_3b"] = _recovery_class(
+            run.crr_distractor_b.crr if run.crr_distractor_b else None
+        )
 
-        # Distractor C — Protocol Anchor
-        pass2["delta_m_pass3c"]    = run.pass3c_delta_m.delta_m if run.pass3c_delta_m else None
-        pass2["esi_pass3c"]        = run.pass3c_esi
-        pass2["crr_distractor_c"]  = run.crr_distractor_c.crr if run.crr_distractor_c else None
-        pass2["triage_changed_3c"] = run.crr_distractor_c.triage_changed if run.crr_distractor_c else None
-        pass2["recovery_class_3c"] = _recovery_class(run.crr_distractor_c.crr) if run.crr_distractor_c else None
+        # Distractor C
+        pass2["delta_m_pass3c"] = (
+            run.pass3c_delta_m.delta_m if run.pass3c_delta_m else None
+        )
+        pass2["esi_pass3c"] = run.pass3c_esi
+        pass2["crr_distractor_c"] = (
+            run.crr_distractor_c.crr if run.crr_distractor_c else None
+        )
+        pass2["triage_changed_3c"] = (
+            run.crr_distractor_c.triage_changed if run.crr_distractor_c else None
+        )
+        pass2["recovery_class_3c"] = _recovery_class(
+            run.crr_distractor_c.crr if run.crr_distractor_c else None
+        )
 
-        # Sycophancy summary — computed at write time
+        # Sycophancy summary
         distractor_crrs = [
-            v for v in [
+            v
+            for v in [
                 pass2["crr_distractor_a"],
                 pass2["crr_distractor_b"],
                 pass2["crr_distractor_c"],
-            ] if v is not None
+            ]
+            if v is not None
         ]
         max_dist = max(distractor_crrs) if distractor_crrs else None
-        pass2["max_distractor_crr"]    = max_dist
+        pass2["max_distractor_crr"] = max_dist
         pass2["crr_vs_distractor_gap"] = (
             run.crr.crr - max_dist
             if run.crr is not None and max_dist is not None
@@ -217,19 +244,20 @@ def run_to_rows(
 
 class BQWriter:
     """
-    Streams VignetteRun results into BigQuery after each vignette.
-
-    Designed for research use: inserts are streaming (not batch load jobs)
-    so you can query results in BigQuery while a run is still in progress.
+    Streams VignetteRun results into BigQuery after each vignette and
+    optionally registers runs as Phoenix experiments.
 
     Parameters
     ----------
     run_id:
-        Experiment batch UUID. Generate once per experiment with uuid.uuid4().
+        Experiment batch UUID.
     gate_threshold:
-        The ΔM threshold used by YentlGuardRunner in this run. Stored per row.
+        The ΔM threshold used by YentlGuardRunner in this run.
     client:
-        Optional pre-configured BigQuery client. If None, uses ADC.
+        Optional pre-configured BigQuery client.
+    phoenix_experiment_registry:
+        Optional PhoenixExperimentRegistry. When supplied, register_experiment()
+        also creates a Phoenix experiment linked to the BQ run_id.
     """
 
     def __init__(
@@ -237,12 +265,14 @@ class BQWriter:
         run_id: str,
         gate_threshold: float = 1.0,
         client: bigquery.Client | None = None,
+        phoenix_experiment_registry=None,
     ):
         self.run_id = run_id
         self.gate_threshold = gate_threshold
         self._client = client or bigquery.Client(project=GCP_PROJECT_ID)
+        self._phoenix_registry = phoenix_experiment_registry
         self._buffer: list[dict] = []
-        self._buffer_size = 500  # flush every N rows; 50 too small for BQ streaming
+        self._buffer_size = 100  # reduced from 500 for research use
 
     def write(
         self,
@@ -250,10 +280,6 @@ class BQWriter:
         esi_ground_truth: str | None = None,
         clinical_category: str | None = None,
     ) -> None:
-        """
-        Convert a completed VignetteRun to rows and add to the write buffer.
-        Flushes automatically when buffer reaches _buffer_size.
-        """
         rows = run_to_rows(
             run=run,
             run_id=self.run_id,
@@ -267,11 +293,11 @@ class BQWriter:
             self.flush()
 
     def flush(self) -> None:
-        """Force-write all buffered rows to BigQuery.
+        """
+        Force-write all buffered rows to BigQuery.
 
-        On insert failure, rows are written to a local JSONL dead-letter file
-        (yentlguard_dlq_{run_id}.jsonl) rather than silently dropped.
-        Re-ingest failed rows with:
+        On insert failure, rows are written to a local JSONL dead-letter file.
+        Re-ingest with:
             bq load --source_format=NEWLINE_DELIMITED_JSON <table> <dlq_file>
         """
         if not self._buffer:
@@ -280,7 +306,7 @@ class BQWriter:
         errors = self._client.insert_rows_json(RUNS_TABLE, self._buffer)
         if errors:
             logger.error(
-                "BigQuery insert errors (%d rows affected): %s",
+                "BigQuery insert errors (%d rows): %s",
                 len(self._buffer), errors,
             )
             dlq_path = pathlib.Path(f"yentlguard_dlq_{self.run_id}.jsonl")
@@ -288,16 +314,14 @@ class BQWriter:
                 for row in self._buffer:
                     f.write(json.dumps(row, default=str) + "\n")
             logger.warning(
-                "Failed rows written to DLQ: %s (%d rows). "
+                "Failed rows → DLQ: %s (%d rows). "
                 "Re-ingest: bq load --source_format=NEWLINE_DELIMITED_JSON %s %s",
                 dlq_path, len(self._buffer), RUNS_TABLE, dlq_path,
             )
         else:
             logger.info(
-                "BQWriter: flushed %d rows to %s (run_id=%s)",
-                len(self._buffer),
-                RUNS_TABLE,
-                self.run_id,
+                "BQWriter: flushed %d rows (run_id=%s)",
+                len(self._buffer), self.run_id,
             )
         self._buffer.clear()
 
@@ -311,11 +335,18 @@ class BQWriter:
         notes: str | None = None,
         yentlbench_version: str | None = None,
         yentlguard_version: str | None = None,
+        phoenix_dataset_id: str | None = None,
     ) -> None:
         """
-        Write one row to the experiments table for this run_id.
+        Write one row to the BQ experiments table and optionally register
+        a Phoenix experiment.
 
-        Call once at the start of each experiment batch before any vignette runs.
+        Parameters
+        ----------
+        phoenix_dataset_id:
+            If the vignette corpus was uploaded to Phoenix via
+            PhoenixDatasetManager.push_vignette_corpus(), pass the returned
+            dataset ID here to link the Phoenix experiment to its input data.
         """
         row = {
             "run_id": self.run_id,
@@ -334,13 +365,29 @@ class BQWriter:
             logger.error("Experiment registration failed: %s", errors)
             dlq_path = pathlib.Path(f"yentlguard_dlq_{self.run_id}.jsonl")
             with dlq_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps({"table": "experiments", "row": row}, default=str) + "\n")
-            logger.warning("Experiment row written to DLQ: %s", dlq_path)
+                f.write(
+                    json.dumps(
+                        {"table": "experiments", "row": row}, default=str
+                    )
+                    + "\n"
+                )
         else:
             logger.info(
                 "Experiment registered: run_id=%s label='%s'",
-                self.run_id,
-                label,
+                self.run_id, label,
+            )
+
+        # Phoenix experiment registration — non-fatal if unavailable
+        if self._phoenix_registry is not None:
+            self._phoenix_registry.register(
+                run_id=self.run_id,
+                label=label,
+                dataset_id=phoenix_dataset_id,
+                model_version=models[0] if models else "unknown",
+                thinking_budget=thinking_budgets[0] if thinking_budgets else None,
+                variants=variants,
+                vignette_count=vignette_count,
+                notes=notes,
             )
 
     def __enter__(self) -> "BQWriter":

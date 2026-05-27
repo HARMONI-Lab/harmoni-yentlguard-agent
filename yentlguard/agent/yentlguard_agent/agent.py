@@ -1,14 +1,12 @@
 """
 YentlGuard root ADK agent.
 
-Exposes the full agentic loop: experiment planning, run execution,
-BigQuery metric analysis, Phoenix span exploration, and hypothesis
-interpretation across H1–H5.
-
-Run via:
-    yentlguard agent                    # launches adk web (browser UI)
-    yentlguard agent --query "..."      # single-turn, prints and exits
-    adk web yentlguard/agent/yentlguard_agent  # direct ADK entrypoint
+Tool inventory:
+    BigQuery tools     — metric queries, PSS, sycophancy verdicts, gate rates
+    Runner tools       — run_baseline, run_experiment, analyze_run
+    Phoenix tools      — span annotation, prompt versioning, anomaly datasets
+    Phoenix MCP tools  — trace/span exploration, list-experiments, list-prompts
+                         (@arizeai/phoenix-mcp via npx stdio process)
 """
 
 from __future__ import annotations
@@ -25,9 +23,6 @@ load_dotenv(Path(__file__).resolve().parents[4] / ".env")
 from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 from yentlguard.config import GCP_PROJECT_ID, GCP_LOCATION
 
-# batch=False: flush spans per turn for interactive adk web sessions.
-# CLI runs (yentlguard run, yentlguard baseline) keep batch=True via their
-# own setup_phoenix_tracing() calls.
 setup_phoenix_tracing(batch=False)
 
 from google.adk.agents import Agent
@@ -43,6 +38,12 @@ from yentlguard.agent.yentlguard_agent.tools.bq_tools import (
     get_sycophancy_verdict,
     list_experiments,
     query_bigquery,
+)
+from yentlguard.agent.yentlguard_agent.tools.phoenix_tools import (
+    annotate_spans_with_verdicts,
+    create_anomaly_dataset,
+    list_prompt_versions,
+    push_prompt_version,
 )
 from yentlguard.agent.yentlguard_agent.tools.runner_tools import (
     analyze_run,
@@ -64,24 +65,36 @@ class VertexGemini(Gemini):
         )
 
 _tools = [
+    # BigQuery — metric aggregation
     FunctionTool(func=query_bigquery),
     FunctionTool(func=list_experiments),
     FunctionTool(func=get_pss_summary),
     FunctionTool(func=get_sycophancy_verdict),
     FunctionTool(func=get_gate_fire_rate),
+    # Runner — experiment execution
     FunctionTool(func=run_baseline),
     FunctionTool(func=run_experiment),
     FunctionTool(func=analyze_run),
+    # Phoenix — span annotation, prompt management, anomaly datasets
+    FunctionTool(func=annotate_spans_with_verdicts),
+    FunctionTool(func=push_prompt_version),
+    FunctionTool(func=list_prompt_versions),
+    FunctionTool(func=create_anomaly_dataset),
 ]
 
+# Phoenix MCP toolset — npx @arizeai/phoenix-mcp stdio process
+# Provides: list-traces, get-trace, list-spans, get-span,
+#           list-projects, list-datasets, get-dataset,
+#           list-experiments, get-experiment,
+#           list-prompts, get-prompt, upsert-prompt,
+#           add-dataset-examples, annotate-span
 _phoenix_mcp = build_phoenix_mcp_toolset()
 if _phoenix_mcp is not None:
     _tools.append(_phoenix_mcp)
     logger.info("Phoenix MCP toolset attached.")
 else:
     logger.info(
-        "Phoenix MCP toolset not available — "
-        "set PHOENIX_API_KEY to enable span exploration tools."
+        "Phoenix MCP toolset unavailable — set PHOENIX_API_KEY to enable."
     )
 
 root_agent = Agent(
