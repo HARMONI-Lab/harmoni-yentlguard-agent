@@ -67,6 +67,7 @@ dependencies = [
 
     # Env var loading
     "python-dotenv>=1.0.1",
+    "nest-asyncio>=1.6.0",
 ]
 
 [project.optional-dependencies]

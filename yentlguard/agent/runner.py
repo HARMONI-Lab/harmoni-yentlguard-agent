@@ -438,35 +438,25 @@ class YentlGuardRunner:
 
             # asyncio.run() guard — handles both sync CLI and async ADK contexts
             try:
-                loop = asyncio.get_running_loop()
+                loop = asyncio.get_event_loop()
             except RuntimeError:
-                loop = None
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-            if loop and loop.is_running():
-                # Running inside ADK or another async context — use executor
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(
-                        asyncio.run,
-                        self._run_parallel_branches(
-                            branches=branches,
-                            config=config,
-                            vignette_id=vignette_id,
-                            demographic_variant=demographic_variant,
-                            run=run,
-                        ),
-                    )
-                    branch_results = future.result()
-            else:
-                branch_results = asyncio.run(
-                    self._run_parallel_branches(
-                        branches=branches,
-                        config=config,
-                        vignette_id=vignette_id,
-                        demographic_variant=demographic_variant,
-                        run=run,
-                    )
+            if loop.is_running():
+                # Running inside ADK or another async context — patch loop to allow nested execution
+                import nest_asyncio
+                nest_asyncio.apply(loop)
+            
+            branch_results = loop.run_until_complete(
+                self._run_parallel_branches(
+                    branches=branches,
+                    config=config,
+                    vignette_id=vignette_id,
+                    demographic_variant=demographic_variant,
+                    run=run,
                 )
+            )
 
             # ── Store results ─────────────────────────────────────────────────
             corr = branch_results.get("corrective")
