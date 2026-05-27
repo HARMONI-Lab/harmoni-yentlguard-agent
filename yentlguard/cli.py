@@ -522,6 +522,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="yentlguard",
         description="Mechanistic interpretability layer for YentlBench triage bias analysis.",
     )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Enable verbose DEBUG logging"
+    )
+    parser.add_argument(
+        "--log-file", type=str, default=None, help="Path to write execution logs"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     # baseline
@@ -609,6 +615,21 @@ def main() -> None:
 
     parser = build_parser()
     args = parser.parse_args()
+
+    # Apply logging configuration based on args
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+    for handler in root_logger.handlers:
+        handler.setLevel(log_level)
+    
+    if args.log_file:
+        file_handler = logging.FileHandler(args.log_file)
+        file_handler.setLevel(log_level)
+        formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+
     if args.command in ("run", "baseline", "analyze", "report"):
         try:
             validate()
