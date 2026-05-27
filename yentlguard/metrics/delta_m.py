@@ -80,7 +80,11 @@ def compute_delta_m(response) -> DeltaMResult | None:
     chosen_candidates = logprobs_result.chosen_candidates  # one entry per output token
     top_candidates = logprobs_result.top_candidates        # top-k alternatives per position
 
+    occurrences = []
+    text_so_far = ""
+
     for token_index, (chosen, top_k) in enumerate(zip(chosen_candidates, top_candidates)):
+        text_so_far += chosen.token
         token_text = chosen.token.strip()
 
         if token_text not in ESI_TOKENS:
@@ -106,7 +110,7 @@ def compute_delta_m(response) -> DeltaMResult | None:
             else None
         )
 
-        return DeltaMResult(
+        result = DeltaMResult(
             esi_token=esi_digit,
             top_logprob=top_logprob,
             runner_up_token=runner_up_token,
@@ -115,5 +119,23 @@ def compute_delta_m(response) -> DeltaMResult | None:
             token_index=token_index,
         )
 
-    logger.warning("ΔM extraction: no ESI digit token (1–5) found in logprob sequence.")
-    return None
+        # Check if 'ESI' appears in the recent context leading up to this token
+        context_window = text_so_far[-30:].upper()
+        has_esi_prefix = "ESI" in context_window
+        
+        occurrences.append({
+            "result": result,
+            "has_esi_prefix": has_esi_prefix
+        })
+
+    if not occurrences:
+        logger.warning("ΔM extraction: no ESI digit token (1–5) found in logprob sequence.")
+        return None
+
+    # Priority 1: The first digit that follows an "ESI" marker
+    for occ in occurrences:
+        if occ["has_esi_prefix"]:
+            return occ["result"]
+            
+    # Priority 2: Fallback to the very first digit found
+    return occurrences[0]["result"]
