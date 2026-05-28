@@ -85,6 +85,8 @@ def run_to_rows(
         "demographic_variant": run.demographic_variant,
         "gate_fired": run.intervention_triggered,
         "gate_threshold": gate_threshold,
+        "gate_trigger_token": run.gate_trigger_token,
+        "gate_trigger_position": run.gate_trigger_position,
         "baseline_delta_m": run.baseline_delta_m,
         "mcp_lookup_success": run.baseline_delta_m is not None,
         # Phoenix prompt version tracking — None when using hardcoded defaults

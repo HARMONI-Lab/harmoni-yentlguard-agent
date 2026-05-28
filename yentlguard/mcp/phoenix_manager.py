@@ -2,7 +2,7 @@
 YentlGuard Phoenix Manager.
 
 Handles three Phoenix MCP use cases that the current BigQuery-bypass
-PhoenixMCPClient does not cover:
+BaselineLookup does not cover:
 
     1. Prompt versioning — corrective + distractor prompts fetched from
        Phoenix at run time, with version history visible in the UI.
@@ -15,7 +15,7 @@ PhoenixMCPClient does not cover:
        experiment, enabling list-experiments / get-experiment MCP tool usage
        from the ADK agent.
 
-The BigQuery baseline ΔM lookup in PhoenixMCPClient is NOT replaced here.
+The BigQuery baseline ΔM lookup in BaselineLookup is NOT replaced here.
 Phoenix MCP cannot filter spans by custom attribute; BQ remains the right
 store for indexed metric lookups.
 

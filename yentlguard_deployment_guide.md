@@ -98,7 +98,7 @@ YentlGuardRunner
         │    ├── runs table (one row per pass per vignette)
         │    └── experiments table (one row per run_id batch)
         │
-        └─── PhoenixMCPClient
+        └─── BaselineLookup
              └── get_baseline_delta_m(vignette_id, variant="nb_ambiguous")
                  ← retrieves historical ΔM from Phoenix span store
 

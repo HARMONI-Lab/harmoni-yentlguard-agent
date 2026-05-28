@@ -93,6 +93,10 @@ RUNS_SCHEMA = [
         description="True if the correction gate triggered for this vignette × variant."),
     bigquery.SchemaField("gate_threshold", "FLOAT64", mode="NULLABLE",
         description="ΔM threshold used for gate decision."),
+    bigquery.SchemaField("gate_trigger_token", "STRING", mode="NULLABLE",
+        description="Which demographic token matched in the vignette."),
+    bigquery.SchemaField("gate_trigger_position", "INT64", mode="NULLABLE",
+        description="Character index where the token matched in the vignette text."),
 
     # ── MCP baseline ──────────────────────────────────────────────────────
     bigquery.SchemaField("baseline_delta_m", "FLOAT64", mode="NULLABLE",

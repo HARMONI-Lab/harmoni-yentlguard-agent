@@ -62,7 +62,7 @@ dependencies = [
     "pyarrow>=16.0.0",
     "db-dtypes>=1.1.0",
 
-    # MCP Python SDK (used by PhoenixMCPClient internals)
+    # MCP Python SDK (used by BaselineLookup internals)
     "mcp>=1.0.0",
 
     # Env var loading

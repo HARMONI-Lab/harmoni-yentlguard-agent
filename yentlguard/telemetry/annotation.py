@@ -192,6 +192,8 @@ def correction_gate_span(
     threshold: float,
     demographic_trigger: bool,
     fired: bool,
+    trigger_token: str | None = None,
+    trigger_position: int | None = None,
 ) -> Generator[Span, None, None]:
     """
     Child span recording the correction gate decision and its inputs.
@@ -207,6 +209,8 @@ def correction_gate_span(
         _safe_set(span, "gate.delta_m", delta_m)
         _safe_set(span, "gate.threshold", threshold)
         _safe_set(span, "gate.demographic_trigger", demographic_trigger)
+        _safe_set(span, "gate.trigger_token", trigger_token)
+        _safe_set(span, "gate.trigger_position", trigger_position)
         _safe_set(span, "gate.fired", fired)
         _safe_set(span, "gate.low_confidence", delta_m is not None and delta_m < threshold)
         span.set_status(Status(StatusCode.OK))

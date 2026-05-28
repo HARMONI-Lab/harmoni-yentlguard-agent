@@ -14,6 +14,7 @@ ESI-digit alternative in the top-k list.
 
 import logging
 import math
+import re
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -80,62 +81,63 @@ def compute_delta_m(response) -> DeltaMResult | None:
     chosen_candidates = logprobs_result.chosen_candidates  # one entry per output token
     top_candidates = logprobs_result.top_candidates        # top-k alternatives per position
 
-    occurrences = []
-    text_so_far = ""
+    full_text = ""
+    token_spans = []
 
-    for token_index, (chosen, top_k) in enumerate(zip(chosen_candidates, top_candidates)):
-        text_so_far += chosen.token
-        token_text = chosen.token.strip()
+    for idx, chosen in enumerate(chosen_candidates):
+        token_text = chosen.token
+        start = len(full_text)
+        full_text += token_text
+        end = len(full_text)
+        token_spans.append((idx, start, end))
 
-        if token_text not in ESI_TOKENS:
-            continue
-
-        top_logprob = chosen.log_probability
-        esi_digit = token_text
-
-        # Find best ESI-digit alternative in the top-k list (excluding the chosen token)
-        runner_up_token = None
-        runner_up_logprob = None
-
-        for alt in top_k.candidates:
-            alt_text = alt.token.strip()
-            if alt_text in ESI_TOKENS and alt_text != esi_digit:
-                if runner_up_logprob is None or alt.log_probability > runner_up_logprob:
-                    runner_up_token = alt_text
-                    runner_up_logprob = alt.log_probability
-
-        delta_m = (
-            top_logprob - runner_up_logprob
-            if runner_up_logprob is not None
-            else None
-        )
-
-        result = DeltaMResult(
-            esi_token=esi_digit,
-            top_logprob=top_logprob,
-            runner_up_token=runner_up_token,
-            runner_up_logprob=runner_up_logprob,
-            delta_m=delta_m,
-            token_index=token_index,
-        )
-
-        # Check if 'ESI' appears in the recent context leading up to this token
-        context_window = text_so_far[-30:].upper()
-        has_esi_prefix = "ESI" in context_window
-        
-        occurrences.append({
-            "result": result,
-            "has_esi_prefix": has_esi_prefix
-        })
-
-    if not occurrences:
-        logger.warning("ΔM extraction: no ESI digit token (1–5) found in logprob sequence.")
+    # Parse for the specific JSON key and value output by structured response schema
+    match = re.search(r'"esi"\s*:\s*([1-5])', full_text)
+    if not match:
+        logger.warning("ΔM extraction: structured 'esi' key and value (1-5) not found in response.")
         return None
 
-    # Priority 1: The first digit that follows an "ESI" marker
-    for occ in occurrences:
-        if occ["has_esi_prefix"]:
-            return occ["result"]
-            
-    # Priority 2: Fallback to the very first digit found
-    return occurrences[0]["result"]
+    digit_char_idx = match.start(1)
+
+    target_token_index = None
+    target_token_text = None
+    target_top_logprob = None
+
+    for (idx, start, end), chosen in zip(token_spans, chosen_candidates):
+        if start <= digit_char_idx < end:
+            target_token_index = idx
+            target_token_text = chosen.token.strip()
+            target_top_logprob = chosen.log_probability
+            break
+
+    if target_token_index is None or target_token_text not in ESI_TOKENS:
+        logger.warning("ΔM extraction: matched digit does not align with a discrete ESI token.")
+        return None
+
+    esi_digit = target_token_text
+    top_k = top_candidates[target_token_index]
+    
+    runner_up_token = None
+    runner_up_logprob = None
+
+    for alt in top_k.candidates:
+        alt_text = alt.token.strip()
+        if alt_text in ESI_TOKENS and alt_text != esi_digit:
+            if runner_up_logprob is None or alt.log_probability > runner_up_logprob:
+                runner_up_token = alt_text
+                runner_up_logprob = alt.log_probability
+
+    delta_m = (
+        target_top_logprob - runner_up_logprob
+        if runner_up_logprob is not None
+        else None
+    )
+
+    return DeltaMResult(
+        esi_token=esi_digit,
+        top_logprob=target_top_logprob,
+        runner_up_token=runner_up_token,
+        runner_up_logprob=runner_up_logprob,
+        delta_m=delta_m,
+        token_index=target_token_index,
+    )

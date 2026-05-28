@@ -119,7 +119,7 @@ def _make_runner(project: str, location: str):
         model_version=PREFLIGHT_MODEL,
         thinking_budget=PREFLIGHT_BUDGET,
         delta_m_threshold=999.0,  # force gate to fire on every vignette for pre-flight
-        phoenix_mcp_client=None,
+        baseline_lookup=None,
     )
 
 
@@ -638,7 +638,7 @@ class TestParallelTriadPreflight(unittest.TestCase):
             model_version=PREFLIGHT_MODEL,
             thinking_budget=PREFLIGHT_BUDGET,
             delta_m_threshold=999.0,  # force gate on every vignette
-            phoenix_mcp_client=None,  # no MCP baseline — CRR will be None
+            baseline_lookup=None,  # no MCP baseline — CRR will be None
         )
 
         vignettes = _load_vignettes("female", 3)
@@ -717,7 +717,7 @@ class TestParallelTriadPreflight(unittest.TestCase):
             model_version=PREFLIGHT_MODEL,
             thinking_budget=PREFLIGHT_BUDGET,
             delta_m_threshold=999.0,
-            phoenix_mcp_client=None,
+            baseline_lookup=None,
         )
 
         vignettes = _load_vignettes("female", 1)

@@ -39,7 +39,7 @@ class TestMCPImports(unittest.TestCase):
         import pathlib
         source = pathlib.Path(
             __file__
-        ).parent.parent / "yentlguard" / "mcp" / "phoenix_client.py"
+        ).parent.parent / "yentlguard" / "mcp" / "baseline_lookup.py"
         content = source.read_text()
 
         self.assertIn(
@@ -71,8 +71,8 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
     """
 
     def _make_client(self):
-        from yentlguard.mcp.phoenix_client import PhoenixMCPClient
-        return PhoenixMCPClient(
+        from yentlguard.mcp.baseline_lookup import MCPBackend
+        return MCPBackend(
             mcp_endpoint="http://localhost:6006/mcp/sse",
             project_name="yentlguard",
         )
@@ -106,8 +106,8 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
         mock_sse_ctx.__aenter__ = AsyncMock(return_value=mock_streams)
         mock_sse_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("yentlguard.mcp.phoenix_client.sse_client", return_value=mock_sse_ctx), \
-             patch("yentlguard.mcp.phoenix_client.ClientSession", return_value=mock_session):
+        with patch("yentlguard.mcp.baseline_lookup.sse_client", return_value=mock_sse_ctx), \
+             patch("yentlguard.mcp.baseline_lookup.ClientSession", return_value=mock_session):
 
             client = self._make_client()
             result = await client._call_tool("get_spans", {"project_name": "yentlguard"})
@@ -139,8 +139,8 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
         mock_sse_ctx.__aenter__ = AsyncMock(return_value=mock_streams)
         mock_sse_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("yentlguard.mcp.phoenix_client.sse_client", return_value=mock_sse_ctx), \
-             patch("yentlguard.mcp.phoenix_client.ClientSession", return_value=mock_session):
+        with patch("yentlguard.mcp.baseline_lookup.sse_client", return_value=mock_sse_ctx), \
+             patch("yentlguard.mcp.baseline_lookup.ClientSession", return_value=mock_session):
 
             client = self._make_client()
             result = await client._call_tool("get_spans", {})
@@ -154,8 +154,8 @@ class TestPhoenixClientSynchronous(unittest.TestCase):
     """
 
     def _make_client(self):
-        from yentlguard.mcp.phoenix_client import PhoenixMCPClient
-        return PhoenixMCPClient(mcp_endpoint="http://localhost:6006/mcp/sse", project_name="yentlguard")
+        from yentlguard.mcp.baseline_lookup import MCPBackend
+        return MCPBackend(mcp_endpoint="http://localhost:6006/mcp/sse", project_name="yentlguard")
 
     def _make_spans(self, delta_m_values: list[float]) -> list[dict]:
         return [
@@ -215,7 +215,7 @@ class TestPhoenixClientSynchronous(unittest.TestCase):
         # with an actionable message, not asyncio.TimeoutError.
         def _raise_timeout(*a, **kw):
             raise RuntimeError(
-                "PhoenixMCPClient timed out after 15.0s. "
+                "MCPBackend timed out after 15.0s. "
                 "Check Phoenix MCP server health."
             )
 
@@ -236,7 +236,7 @@ class TestPhoenixClientSynchronous(unittest.TestCase):
         import pathlib
         source = (
             pathlib.Path(__file__).parent.parent
-            / "yentlguard" / "mcp" / "phoenix_client.py"
+            / "yentlguard" / "mcp" / "baseline_lookup.py"
         ).read_text()
         self.assertIn(
             "await session.initialize()",
