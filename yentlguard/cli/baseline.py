@@ -18,7 +18,6 @@ def cmd_baseline(args: argparse.Namespace) -> None:
 
     provider = setup_phoenix_tracing()
 
-    # Phoenix components — non-fatal if unavailable
     prompt_mgr, dataset_mgr, expt_registry = _build_phoenix_components()
 
     dataset_path = _pathlib.Path(args.dataset)
@@ -37,7 +36,6 @@ def cmd_baseline(args: argparse.Namespace) -> None:
         "Loaded %d nb_ambiguous vignettes from %s", len(df_variant), dataset_path
     )
 
-    # Upload vignette corpus to Phoenix (non-fatal)
     corpus_df = df_variant.copy()
     corpus_df["vignette_text"] = corpus_df.apply(
         lambda r: _build_prompt(r.to_dict(), "nb_ambiguous"), axis=1
@@ -52,15 +50,13 @@ def cmd_baseline(args: argparse.Namespace) -> None:
     corpus_df["demographic_variant"] = "nb_ambiguous"
 
     phoenix_dataset_id = dataset_mgr.push_vignette_corpus(
-        df=corpus_df[
-            [
-                "source_stay_id",
-                "vignette_text",
-                "demographic_variant",
-                "clinical_category",
-                "esi_ground_truth",
-            ]
-        ],
+        df=corpus_df[[
+            "source_stay_id",
+            "vignette_text",
+            "demographic_variant",
+            "clinical_category",
+            "esi_ground_truth",
+        ]],
         dataset_name=f"yentlbench-nb-ambiguous-{args.model}-{args.budget}",
     )
 
@@ -103,10 +99,13 @@ def cmd_baseline(args: argparse.Namespace) -> None:
             if vignette_id in completed:
                 continue
             text = _build_prompt(vignette, "nb_ambiguous")
+            # Pass run_id so yentlguard.run_id is written on every span —
+            # required for annotate_spans_with_verdicts to locate spans by run_id.
             run = runner.run(
                 vignette_id=vignette_id,
                 vignette_text=text,
                 demographic_variant="nb_ambiguous",
+                run_id=run_id,
             )
 
             esi_gt = (

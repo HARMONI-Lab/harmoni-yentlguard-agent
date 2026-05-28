@@ -20,7 +20,6 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     provider = setup_phoenix_tracing()
 
-    # Phoenix components
     prompt_mgr, dataset_mgr, expt_registry = _build_phoenix_components()
 
     mcp_client = BQBackend(project_name="yentlguard")
@@ -36,7 +35,6 @@ def cmd_run(args: argparse.Namespace) -> None:
     df_all = _pd.read_csv(dataset_path)
     df_all = df_all[df_all["acuity"].notna()]
 
-    # Upload vignette corpus for each variant to Phoenix (non-fatal)
     phoenix_dataset_id: str | None = None
     try:
         rows_for_phoenix = []
@@ -54,22 +52,18 @@ def cmd_run(args: argparse.Namespace) -> None:
             vdf["source_stay_id"] = vdf["source_stay_id"].astype(str)
             vdf["demographic_variant"] = variant
             rows_for_phoenix.append(
-                vdf[
-                    [
-                        "source_stay_id",
-                        "vignette_text",
-                        "demographic_variant",
-                        "clinical_category",
-                        "esi_ground_truth",
-                    ]
-                ]
+                vdf[[
+                    "source_stay_id",
+                    "vignette_text",
+                    "demographic_variant",
+                    "clinical_category",
+                    "esi_ground_truth",
+                ]]
             )
         corpus_df = _pd.concat(rows_for_phoenix, ignore_index=True)
         phoenix_dataset_id = dataset_mgr.push_vignette_corpus(
             df=corpus_df,
-            dataset_name=(
-                f"yentlbench-{'-'.join(args.variants)}-{run_id[:8]}"
-            ),
+            dataset_name=f"yentlbench-{'-'.join(args.variants)}-{run_id[:8]}",
         )
     except Exception as e:
         logger.warning("Phoenix corpus upload failed (non-fatal): %s", e)
@@ -132,14 +126,19 @@ def cmd_run(args: argparse.Namespace) -> None:
                     len(vignettes_df), args.model, budget, variant,
                 )
 
-                async def _process_variant():
+                async def _process_variant(
+                    _vignettes_df=vignettes_df,
+                    _variant=variant,
+                    _runner=runner,
+                    _run_id=run_id,
+                ):
                     sem = asyncio.Semaphore(4)
 
                     async def process_row(row):
                         async with sem:
                             vignette = row.to_dict()
                             vignette_id = str(int(vignette["source_stay_id"]))
-                            text = _build_prompt(vignette, variant)
+                            text = _build_prompt(vignette, _variant)
                             esi_gt = (
                                 str(int(vignette["acuity"]))
                                 if not _pd.isna(vignette.get("acuity"))
@@ -148,11 +147,14 @@ def cmd_run(args: argparse.Namespace) -> None:
                             clinical_cat = (
                                 str(vignette.get("chiefcomplaint", "")) or None
                             )
+                            # Pass run_id so yentlguard.run_id is written on
+                            # every span — required for annotate_spans_with_verdicts.
                             run = await asyncio.to_thread(
-                                runner.run,
+                                _runner.run,
                                 vignette_id=vignette_id,
                                 vignette_text=text,
-                                demographic_variant=variant,
+                                demographic_variant=_variant,
+                                run_id=_run_id,
                             )
                             bq.write(
                                 run=run,
@@ -185,7 +187,7 @@ def cmd_run(args: argparse.Namespace) -> None:
                                     run.intervention_triggered,
                                 )
 
-                    tasks = [process_row(row) for _, row in vignettes_df.iterrows()]
+                    tasks = [process_row(row) for _, row in _vignettes_df.iterrows()]
                     await asyncio.gather(*tasks)
 
                 asyncio.run(_process_variant())

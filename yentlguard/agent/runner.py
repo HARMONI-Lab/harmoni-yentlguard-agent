@@ -30,8 +30,14 @@ Prompt versioning:
     When a PhoenixPromptManager is supplied, corrective and distractor
     prompts are fetched from Phoenix at run time. This means every
     experiment run is linked to the exact prompt version used — visible
-    in the Phoenix UI and queryable via the list-prompts MCP tool.
+    in the Phoenix UI and queryable via the list-prompt-versions MCP tool.
     Falls back to hardcoded defaults when Phoenix is unavailable.
+
+Span run_id tagging:
+    When run_id is supplied to run(), it is written as yentlguard.run_id
+    on every enriched generation span. This is required for
+    annotate_spans_with_verdicts in phoenix_tools.py to locate pass_number=2
+    spans by run_id without relying on Phoenix MCP custom attribute filtering.
 """
 
 import asyncio
@@ -60,7 +66,7 @@ from yentlguard.telemetry.annotation import (
 
 if TYPE_CHECKING:
     from yentlguard.mcp.baseline_lookup import BaselineLookup
-    from yentlguard.mcp.prompt_manager import PhoenixPromptManager
+    from yentlguard.mcp.phoenix_manager import PhoenixPromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -226,8 +232,6 @@ class YentlGuardRunner:
         return types.GenerateContentConfig(**config_kwargs)
 
     # ── Prompt builders ────────────────────────────────────────────────────────
-    # Each builder delegates to PhoenixPromptManager when available.
-    # The manager handles cache, fallback, and version logging internally.
 
     def _build_corrective_prompt(self, original_vignette: str) -> str:
         if self.prompt_manager:
@@ -288,12 +292,10 @@ class YentlGuardRunner:
         vignette_id: str,
         vignette_text: str,
         demographic_variant: str,
+        run_id: str | None = None,
     ) -> VignetteRun:
         """
         Execute a full mechanistic run for one vignette × variant.
-
-        Runs Pass 1 synchronously, then — if the correction gate fires —
-        spawns the Parallel Triad (corrective + 3a + 3b + 3c) concurrently.
 
         Parameters
         ----------
@@ -304,6 +306,11 @@ class YentlGuardRunner:
         demographic_variant:
             YentlBench variant label ("male", "female", "nb_ambiguous",
             "nb_label_only", "nb_explicit").
+        run_id:
+            Optional experiment batch UUID. When supplied, written to all
+            enriched generation spans as yentlguard.run_id so that
+            annotate_spans_with_verdicts can locate pass_number=2 spans
+            by run_id without relying on Phoenix MCP custom attribute filtering.
         """
         run = VignetteRun(
             vignette_id=vignette_id,
@@ -319,6 +326,7 @@ class YentlGuardRunner:
             demographic_variant=demographic_variant,
             model_version=self.model_version,
             thinking_budget=self.thinking_budget,
+            run_id=run_id,
         ):
             # ── Pass 1 ────────────────────────────────────────────────────────
             logger.info(
@@ -350,6 +358,7 @@ class YentlGuardRunner:
                     delta_m_result=run.pass1_delta_m,
                     tar_result=run.pass1_tar,
                     raw_text=run.raw_text_pass1,
+                    run_id=run_id,
                 )
 
             except Exception as e:
@@ -397,7 +406,7 @@ class YentlGuardRunner:
                         if run.pass1_delta_m and run.pass1_delta_m.delta_m
                         else -999
                     ),
-                    demographic_trigger,
+                    has_trigger,  # was: demographic_trigger (NameError — undefined variable)
                 )
                 return run
 
@@ -467,10 +476,9 @@ class YentlGuardRunner:
                 asyncio.set_event_loop(loop)
 
             if loop.is_running():
-                # Running inside ADK or another async context — patch loop to allow nested execution
                 import nest_asyncio
                 nest_asyncio.apply(loop)
-            
+
             branch_results = loop.run_until_complete(
                 self._run_parallel_branches(
                     branches=branches,
@@ -478,6 +486,7 @@ class YentlGuardRunner:
                     vignette_id=vignette_id,
                     demographic_variant=demographic_variant,
                     run=run,
+                    run_id=run_id,
                 )
             )
 
@@ -529,6 +538,7 @@ class YentlGuardRunner:
         vignette_id: str,
         demographic_variant: str,
         run: "VignetteRun",
+        run_id: str | None = None,
     ) -> dict[str, dict]:
         """
         Execute all four post-gate branches concurrently via asyncio.gather().
@@ -549,10 +559,10 @@ class YentlGuardRunner:
                     "[%s/%s] Branch %s → Vertex AI",
                     vignette_id, demographic_variant, label,
                 )
-                
+
                 branch_schema = DistractorBResponse if label == "3b" else TriageResponse
                 branch_config = self._build_config(response_schema=branch_schema)
-                
+
                 loop = asyncio.get_running_loop()
                 response = await loop.run_in_executor(
                     None,
@@ -593,6 +603,7 @@ class YentlGuardRunner:
                     pass_number=pass_num,
                     delta_m_result=dm_result,
                     raw_text=raw_text,
+                    run_id=run_id,
                 )
                 with pass_metrics_span(pass_number=pass_num, delta_m_result=dm_result):
                     pass

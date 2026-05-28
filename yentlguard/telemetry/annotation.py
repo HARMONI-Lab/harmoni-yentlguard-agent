@@ -31,8 +31,10 @@ Two responsibilities:
    │   └── pass5.metrics → delta_m grandchild
    └── crr (child: corrective CRR result — distractor CRRs on BQ row, not span)
 
-This gives maximum Phoenix observability: you can slice at any level,
-from aggregate sycophancy gap down to the exact logprob of the runner-up ESI token.
+The yentlguard.run_id attribute is set on every enriched generation span.
+This is required by annotate_spans_with_verdicts in phoenix_tools.py to
+locate pass_number=2 spans by run_id without relying on Phoenix MCP custom
+attribute filtering (which is not supported).
 """
 
 import logging
@@ -109,6 +111,7 @@ def vignette_trace(
     model_version: str,
     thinking_budget: str | None,
     clinical_category: str | None = None,
+    run_id: str | None = None,
 ) -> Generator[Span, None, None]:
     """
     Root span for a single vignette × variant mechanistic run.
@@ -116,9 +119,11 @@ def vignette_trace(
     All child spans (pass1, pass2, correction_gate, crr) should be created
     inside this context so they share the same trace ID.
 
-    Usage:
-        with vignette_trace("ED_00147", "female", "gemini-2.5-pro", "medium") as span:
-            # run passes inside here
+    Parameters
+    ----------
+    run_id:
+        Experiment batch UUID. Written as yentlguard.run_id on the root span
+        so that annotate_spans_with_verdicts can locate spans by run_id.
     """
     with tracer.start_as_current_span(
         f"yentlguard.vignette.{demographic_variant}",
@@ -129,6 +134,7 @@ def vignette_trace(
         _safe_set(span, "yentlguard.model_version", model_version)
         _safe_set(span, "yentlguard.thinking_budget", thinking_budget)
         _safe_set(span, "yentlguard.clinical_category", clinical_category)
+        _safe_set(span, "yentlguard.run_id", run_id)
         yield span
 
 
@@ -270,6 +276,7 @@ def enrich_generation_span(
     tar_result: TARResult | None = None,
     clinical_category: str | None = None,
     raw_text: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     """
     Enrich the active OpenInference generation span with YentlGuard metadata.
@@ -283,7 +290,11 @@ def enrich_generation_span(
     span:
         The currently active OTel span (obtain via trace.get_current_span()).
     pass_number:
-        1 or 2 — which pass this generation belongs to.
+        1 = initial run, 2 = corrective, 3/4/5 = distractors 3a/3b/3c.
+    run_id:
+        Experiment batch UUID. Written as yentlguard.run_id so that
+        annotate_spans_with_verdicts can locate this span by run_id.
+        Pass None only for baseline runs where no BQWriter run_id exists yet.
     """
     _safe_set(span, "yentlguard.vignette_id", vignette_id)
     _safe_set(span, "yentlguard.demographic_variant", demographic_variant)
@@ -291,6 +302,7 @@ def enrich_generation_span(
     _safe_set(span, "yentlguard.thinking_budget", thinking_budget)
     _safe_set(span, "yentlguard.pass_number", pass_number)
     _safe_set(span, "yentlguard.clinical_category", clinical_category)
+    _safe_set(span, "yentlguard.run_id", run_id)
     if raw_text is not None:
         _safe_set(span, "yentlguard.raw_text", raw_text)
 

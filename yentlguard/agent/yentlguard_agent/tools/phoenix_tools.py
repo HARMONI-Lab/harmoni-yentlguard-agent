@@ -1,20 +1,32 @@
 """
 Phoenix MCP function tools for the YentlGuard ADK agent.
 
-These tools let the agent interact with Phoenix directly from a conversation:
-    - Retrieve experiment results by run_id
+These tools let the agent interact with Phoenix from a conversation:
     - Annotate spans with sycophancy verdicts computed from BQ
     - Push new prompt versions to Phoenix
+    - List prompt versions (fallback when Phoenix MCP toolset unavailable)
     - Create anomaly subset datasets
 
-These complement the BigQuery tools (bq_tools.py) — the agent uses BQ for
-metric aggregation and Phoenix for observability, prompt management, and
-span annotation.
+Relationship to Phoenix MCP tools:
+    The @arizeai/phoenix-mcp toolset (list-traces, get-spans, get-span-annotations,
+    list-prompt-versions, get-dataset-examples, etc.) handles read operations
+    and simple writes directly from the agent.
 
-All functions are plain Python callables that FunctionTool wraps.
-Each is designed to be called after a BQ query reveals something worth
-acting on: a sycophancy verdict, an anomalous gate-fire cluster, a
-prompt iteration to log.
+    These Python function tools handle writes that require BQ context —
+    specifically, pairing BQ metric rows with Phoenix spans by vignette_id.
+    The agent should prefer the MCP tools for browsing, and these function
+    tools for BQ-paired writes.
+
+Span lookup strategy for annotate_spans_with_verdicts:
+    The Phoenix MCP get-spans tool returns spans for a given trace but does
+    NOT support filtering by custom attributes like yentlguard.vignette_id.
+    This function therefore locates spans via a two-step approach:
+      1. Call list-traces via the Phoenix REST client to find traces tagged
+         with the run_id in their root span attributes.
+      2. Walk each trace's spans to find the pass_number=2 span for the
+         target vignette × variant.
+    If the Phoenix client is unavailable, annotation is skipped with a warning
+    rather than failing the batch.
 """
 
 from __future__ import annotations
@@ -22,9 +34,70 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+# ── Phoenix REST client helpers ────────────────────────────────────────────────
+
+def _get_phoenix_client() -> "Any | None":
+    """Return a Phoenix client or None if unavailable."""
+    base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+    api_key = os.environ.get("PHOENIX_API_KEY", "")
+    try:
+        from phoenix.client import Client
+        return Client(base_url=base_url, api_key=api_key)
+    except Exception as e:
+        logger.warning("Phoenix client unavailable: %s", e)
+        return None
+
+
+def _find_pass2_spans_for_run(
+    client: "Any",
+    run_id: str,
+) -> dict[tuple[str, str], str]:
+    """
+    Return a mapping of (vignette_id, demographic_variant) → span_id for
+    all pass_number=2 spans belonging to a given run_id.
+
+    Strategy: list all spans in the default project, filter in Python by
+    the yentlguard.run_id and yentlguard.pass_number attributes.
+    This is O(N) over all spans in the project but is only called once
+    per annotate_spans_with_verdicts invocation.
+
+    Phoenix MCP get-spans does not support attribute-based filtering, so
+    this uses the Python client's REST API directly.
+
+    Returns {} on any failure so the caller can degrade gracefully.
+    """
+    result: dict[tuple[str, str], str] = {}
+    try:
+        # Phoenix client spans.list() with no filters returns an iterator
+        # over all spans. We walk it and filter by run_id attribute.
+        # The iterator yields span objects; exact attribute access depends
+        # on the phoenix.client version.
+        span_iter = client.spans.list()
+        for span in span_iter:
+            attrs = getattr(span, "attributes", {}) or {}
+            if attrs.get("yentlguard.run_id") != run_id:
+                continue
+            if attrs.get("yentlguard.pass_number") != 2:
+                continue
+            vignette_id = attrs.get("yentlguard.vignette_id")
+            variant = attrs.get("yentlguard.demographic_variant")
+            span_id = getattr(span, "id", None) or getattr(span, "span_id", None)
+            if vignette_id and variant and span_id:
+                result[(str(vignette_id), str(variant))] = str(span_id)
+    except Exception as e:
+        logger.warning(
+            "Span lookup for run_id=%s failed: %s — annotation will be skipped",
+            run_id, e,
+        )
+    return result
+
+
+# ── Function tools ─────────────────────────────────────────────────────────────
 
 def annotate_spans_with_verdicts(
     run_id: str,
@@ -35,15 +108,17 @@ def annotate_spans_with_verdicts(
     corresponding Phoenix spans, and write the verdict back as span annotations.
 
     This closes the observability loop: BQ computes the verdict, Phoenix stores
-    it on the span so it's visible in the trace view alongside the raw logprobs.
+    it on the span so it is visible in the trace view alongside the raw logprobs.
 
     Annotated attributes per span:
         yentlguard.sycophancy_verdict   genuine_debiasing | likely_sycophancy | ambiguous
         yentlguard.crr                  float
         yentlguard.crr_vs_distractor_gap  float
 
-    The function pairs BQ rows to Phoenix spans by vignette_id and
-    demographic_variant. Spans without a matching BQ row are skipped.
+    Span lookup uses the Phoenix Python client to walk spans for this run_id,
+    since the @arizeai/phoenix-mcp get-spans tool does not support filtering
+    by custom attributes. After calling this tool, verify the annotations by
+    calling get-span-annotations on a sample span_id from the output.
 
     Args:
         run_id: Experiment batch UUID to annotate.
@@ -51,7 +126,8 @@ def annotate_spans_with_verdicts(
                               likely_sycophancy (default 0.1).
 
     Returns:
-        JSON summary with n_annotated, n_skipped, and any errors.
+        JSON with n_annotated, n_skipped, sample_span_ids (for MCP verification),
+        and any errors encountered.
     """
     from google.cloud import bigquery
     from yentlguard.config import GCP_PROJECT_ID, RUNS_TABLE
@@ -90,30 +166,49 @@ def annotate_spans_with_verdicts(
         return f"BigQuery error: {e}"
 
     if df.empty:
-        return json.dumps(
-            {
-                "status": "no_data",
-                "message": f"No pass_number=2 rows found for run_id={run_id}.",
-            }
-        )
+        return json.dumps({
+            "status": "no_data",
+            "message": f"No pass_number=2 rows found for run_id={run_id}.",
+        })
 
-    # Step 2: Look up Phoenix spans by vignette_id
-    # Phoenix MCP list-spans returns all spans; we filter by the
-    # yentlguard.vignette_id attribute locally.
-    # For the annotation use case this is acceptable — we only need spans
-    # for the gate-fired subset (pass_number=2 rows), not the full corpus.
+    # Step 2: Locate Phoenix spans for this run
+    # Uses Python client rather than Phoenix MCP get-spans because MCP does
+    # not support custom attribute filtering. The agent can call get-spans
+    # or get-span-annotations on specific span_ids from sample_span_ids below.
     base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
     api_key = os.environ.get("PHOENIX_API_KEY", "")
 
-    try:
-        from phoenix.client import Client
-        px_client = Client(base_url=base_url, api_key=api_key)
-    except Exception as e:
-        return f"Phoenix client error: {e}"
+    client = _get_phoenix_client()
+    if client is None:
+        return json.dumps({
+            "status": "error",
+            "message": "Phoenix client unavailable — check PHOENIX_BASE_URL and PHOENIX_API_KEY.",
+        })
 
+    span_map = _find_pass2_spans_for_run(client, run_id)
+
+    if not span_map:
+        # span_map may be empty if run_id attribute was not set on spans, or
+        # if this is a run that pre-dates run_id span enrichment.
+        logger.warning(
+            "No pass_number=2 spans found with run_id=%s in Phoenix. "
+            "Spans may pre-date run_id attribute tagging — annotation skipped.",
+            run_id,
+        )
+        return json.dumps({
+            "status": "no_spans",
+            "message": (
+                f"No pass_number=2 spans found in Phoenix for run_id={run_id}. "
+                "Verify that yentlguard.run_id is set on spans via enrich_generation_span()."
+            ),
+            "n_bq_rows": len(df),
+        })
+
+    # Step 3: Annotate matched spans
     n_annotated = 0
     n_skipped = 0
     errors: list[str] = []
+    sample_span_ids: list[str] = []
 
     for _, bq_row in df.iterrows():
         vignette_id = str(bq_row["vignette_id"])
@@ -122,40 +217,13 @@ def annotate_spans_with_verdicts(
         crr = float(bq_row["crr"])
         gap = float(bq_row["crr_vs_distractor_gap"])
 
-        try:
-            # Fetch spans for this vignette — small set per gate-fired vignette
-            spans = px_client.spans.list(
-                filters=[
-                    {"attribute": "attributes.yentlguard.vignette_id", "value": vignette_id},
-                    {"attribute": "attributes.yentlguard.demographic_variant", "value": variant},
-                    {"attribute": "attributes.yentlguard.pass_number", "value": 2},
-                ]
-            )
-            span_list = list(spans) if spans else []
-        except Exception as e:
-            # Phoenix span filtering by custom attribute may not be supported;
-            # log and skip rather than failing the whole batch.
-            logger.debug(
-                "Span lookup failed for %s/%s: %s — skipping annotation",
-                vignette_id, variant, e,
-            )
-            n_skipped += 1
-            continue
-
-        if not span_list:
-            n_skipped += 1
-            continue
-
-        # Annotate the first matching span (there should be exactly one per
-        # vignette × variant × pass_number=2)
-        span = span_list[0]
-        span_id = getattr(span, "id", None) or getattr(span, "span_id", None)
+        span_id = span_map.get((vignette_id, variant))
         if not span_id:
             n_skipped += 1
             continue
 
         success = annotate_span_with_verdict(
-            span_id=str(span_id),
+            span_id=span_id,
             vignette_id=vignette_id,
             sycophancy_verdict=verdict,
             crr=crr,
@@ -165,18 +233,23 @@ def annotate_spans_with_verdicts(
         )
         if success:
             n_annotated += 1
+            if len(sample_span_ids) < 5:
+                sample_span_ids.append(span_id)
         else:
             n_skipped += 1
 
-    return json.dumps(
-        {
-            "status": "complete",
-            "run_id": run_id,
-            "n_annotated": n_annotated,
-            "n_skipped": n_skipped,
-            "errors": errors[:10],  # cap for readability
-        }
-    )
+    return json.dumps({
+        "status": "complete",
+        "run_id": run_id,
+        "n_annotated": n_annotated,
+        "n_skipped": n_skipped,
+        "sample_span_ids": sample_span_ids,
+        "mcp_verification_hint": (
+            "Call get-span-annotations with a span_id from sample_span_ids "
+            "to verify that yentlguard.sycophancy_verdict was written correctly."
+        ),
+        "errors": errors[:10],
+    })
 
 
 def push_prompt_version(
@@ -187,20 +260,19 @@ def push_prompt_version(
     """
     Push a new corrective or distractor prompt version to Phoenix.
 
-    Use this when you want to iterate on prompt wording and track the change.
-    The new version is stored in Phoenix with a version ID. Subsequent runs
-    will fetch this version at run time (via PhoenixPromptManager).
+    Maps the logical YentlGuard prompt name to the Phoenix prompt name and
+    creates a new version. After calling this, use the MCP tools
+    list-prompt-versions and get-latest-prompt to confirm the version is live,
+    and add-prompt-version-tag to promote it to "production" if desired.
 
     Args:
         prompt_name: Logical name — "corrective", "distractor_a",
                      "distractor_b", or "distractor_c".
-        template: Full prompt template with {{VIGNETTE}} placeholder where
-                  the vignette text should be inserted.
-        description: Human-readable description of this version, e.g.
-                     "v2 — stronger vital-sign foregrounding, removed hedging language".
+        template: Full prompt template with {{VIGNETTE}} placeholder.
+        description: Human-readable description of this version.
 
     Returns:
-        JSON with status and prompt_name on success, error string on failure.
+        JSON with status, prompt_name, and the Phoenix prompt name on success.
     """
     from yentlguard.mcp.phoenix_manager import PhoenixPromptManager
 
@@ -210,17 +282,28 @@ def push_prompt_version(
         template=template,
         description=description,
     )
+
+    from yentlguard.mcp.phoenix_manager import _PROMPT_NAMES
+    phoenix_name = _PROMPT_NAMES.get(prompt_name, "unknown")
+
     if success:
-        return json.dumps(
-            {"status": "pushed", "prompt_name": prompt_name, "description": description}
-        )
-    return json.dumps(
-        {
-            "status": "failed",
+        return json.dumps({
+            "status": "pushed",
             "prompt_name": prompt_name,
-            "message": "Push failed — check PHOENIX_API_KEY and PHOENIX_BASE_URL.",
-        }
-    )
+            "phoenix_prompt_name": phoenix_name,
+            "description": description,
+            "next_steps": (
+                "Call list-prompt-versions to confirm the new version is live. "
+                "Call add-prompt-version-tag with tag='production' to make it "
+                "the default for the next run_experiment call."
+            ),
+        })
+    return json.dumps({
+        "status": "failed",
+        "prompt_name": prompt_name,
+        "phoenix_prompt_name": phoenix_name,
+        "message": "Push failed — check PHOENIX_API_KEY and PHOENIX_BASE_URL.",
+    })
 
 
 def create_anomaly_dataset(
@@ -238,8 +321,9 @@ def create_anomaly_dataset(
         "gate_fired_high"     — vignettes where gate fired AND delta_m < 0.5
         "triage_changed"      — vignettes where pass2 ESI differs from pass1
 
-    The resulting Phoenix dataset can be used as the input for a targeted
-    re-run (e.g., testing a new corrective prompt on only the sycophantic cases).
+    After this tool returns a dataset_id, use get-dataset-examples to inspect
+    the vignette rows, and get-dataset-experiments to check if this dataset
+    has already been used in a prior targeted run.
 
     Args:
         run_id: Experiment batch UUID to analyse.
@@ -248,7 +332,8 @@ def create_anomaly_dataset(
         dataset_csv_path: Path to the full vignette CSV for corpus lookup.
 
     Returns:
-        JSON with Phoenix dataset_id and vignette count on success.
+        JSON with Phoenix dataset_id and vignette count on success, plus
+        MCP hints for inspecting the created dataset.
     """
     import pandas as pd
     from google.cloud import bigquery
@@ -272,15 +357,13 @@ def create_anomaly_dataset(
 
     clause = filter_clauses.get(filter_type)
     if not clause:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": (
-                    f"Unknown filter_type '{filter_type}'. "
-                    f"Valid: {list(filter_clauses.keys())}"
-                ),
-            }
-        )
+        return json.dumps({
+            "status": "error",
+            "message": (
+                f"Unknown filter_type '{filter_type}'. "
+                f"Valid: {list(filter_clauses.keys())}"
+            ),
+        })
 
     sql = f"""
     SELECT DISTINCT vignette_id
@@ -298,13 +381,11 @@ def create_anomaly_dataset(
         return f"BigQuery error: {e}"
 
     if df_ids.empty:
-        return json.dumps(
-            {
-                "status": "no_matches",
-                "filter_type": filter_type,
-                "run_id": run_id,
-            }
-        )
+        return json.dumps({
+            "status": "no_matches",
+            "filter_type": filter_type,
+            "run_id": run_id,
+        })
 
     vignette_ids = df_ids["vignette_id"].astype(str).tolist()
 
@@ -313,17 +394,14 @@ def create_anomaly_dataset(
         from yentlbench.local_runner.prompt import build_prompt as _build_prompt
 
         if not pathlib.Path(dataset_csv_path).exists():
-            return json.dumps(
-                {
-                    "status": "error",
-                    "message": f"Dataset CSV not found: {dataset_csv_path}",
-                }
-            )
+            return json.dumps({
+                "status": "error",
+                "message": f"Dataset CSV not found: {dataset_csv_path}",
+            })
 
         full_df = pd.read_csv(dataset_csv_path)
         full_df = full_df[full_df["acuity"].notna()]
 
-        # Build one row per vignette × variant (all variants present in the run)
         variants_sql = f"""
         SELECT DISTINCT demographic_variant
         FROM `{RUNS_TABLE}`
@@ -358,15 +436,13 @@ def create_anomaly_dataset(
             vdf["source_stay_id"] = vdf["source_stay_id"].astype(str)
             vdf["demographic_variant"] = variant
             rows.append(
-                vdf[
-                    [
-                        "source_stay_id",
-                        "vignette_text",
-                        "demographic_variant",
-                        "clinical_category",
-                        "esi_ground_truth",
-                    ]
-                ]
+                vdf[[
+                    "source_stay_id",
+                    "vignette_text",
+                    "demographic_variant",
+                    "clinical_category",
+                    "esi_ground_truth",
+                ]]
             )
 
         corpus_df = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
@@ -375,9 +451,10 @@ def create_anomaly_dataset(
         return f"Dataset build error: {e}"
 
     if corpus_df.empty:
-        return json.dumps(
-            {"status": "error", "message": "Could not build corpus DataFrame."}
-        )
+        return json.dumps({
+            "status": "error",
+            "message": "Could not build corpus DataFrame.",
+        })
 
     mgr = PhoenixDatasetManager()
     dataset_id = mgr.push_anomaly_subset(
@@ -391,23 +468,29 @@ def create_anomaly_dataset(
         ),
     )
 
-    return json.dumps(
-        {
-            "status": "created" if dataset_id else "failed",
-            "dataset_id": dataset_id,
-            "n_vignettes": len(vignette_ids),
-            "filter_type": filter_type,
-            "run_id": run_id,
-        }
-    )
+    return json.dumps({
+        "status": "created" if dataset_id else "failed",
+        "dataset_id": dataset_id,
+        "n_vignettes": len(vignette_ids),
+        "filter_type": filter_type,
+        "run_id": run_id,
+        "mcp_next_steps": (
+            f"Call get-dataset-examples with dataset_id='{dataset_id}' "
+            "to inspect the vignette rows. "
+            f"Call get-dataset-experiments with dataset_id='{dataset_id}' "
+            "to check if this subset has already been used in a prior targeted run."
+        ) if dataset_id else None,
+    })
 
 
 def list_prompt_versions(prompt_name: str) -> str:
     """
     List all versions of a YentlGuard prompt stored in Phoenix.
 
-    Useful before running an experiment to confirm which prompt version will
-    be used, or to compare CRR across experiments that used different versions.
+    This is a fallback for environments where the Phoenix MCP toolset is
+    unavailable. When Phoenix MCP is available, prefer calling the MCP tools
+    list-prompt-versions directly — they return richer metadata including
+    model configurations and invocation parameters.
 
     Args:
         prompt_name: "corrective", "distractor_a", "distractor_b",
@@ -424,19 +507,16 @@ def list_prompt_versions(prompt_name: str) -> str:
 
     phoenix_name = _PROMPT_NAMES.get(prompt_name)
     if not phoenix_name:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": (
-                    f"Unknown prompt_name '{prompt_name}'. "
-                    f"Valid: {list(_PROMPT_NAMES.keys())}"
-                ),
-            }
-        )
+        return json.dumps({
+            "status": "error",
+            "message": (
+                f"Unknown prompt_name '{prompt_name}'. "
+                f"Valid: {list(_PROMPT_NAMES.keys())}"
+            ),
+        })
 
     try:
         from phoenix.client import Client
-
         client = Client(base_url=base_url, api_key=api_key)
         versions = client.prompts.list_versions(name=phoenix_name)
         result = [

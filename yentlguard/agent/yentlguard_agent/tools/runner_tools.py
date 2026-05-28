@@ -14,7 +14,9 @@ The agent should state the estimated scope and confirm with the user before
 calling run_experiment. run_baseline is lower risk but still incurs GCP cost.
 
 Both return a run_id on completion that can be passed directly to BigQuery
-analysis tools (get_pss_summary, get_sycophancy_verdict, etc.).
+analysis tools (get_pss_summary, get_sycophancy_verdict, etc.) and to Phoenix
+MCP tools (list-experiments-for-dataset, get-experiment-by-id) via the
+phoenix_dataset_id stored in the BQ experiments table.
 """
 
 from __future__ import annotations
@@ -98,6 +100,12 @@ def run_experiment(
     corrective + distractors 3a/3b/3c. Confirm the scope with the user
     before calling — this incurs real GCP cost.
 
+    The returned run_id can be used with:
+        - BigQuery tools: get_pss_summary, get_sycophancy_verdict, get_gate_fire_rate
+        - Phoenix MCP: query_bigquery to retrieve phoenix_dataset_id from the
+          experiments table, then list-experiments-for-dataset and
+          get-experiment-by-id for the Phoenix-native experiment view.
+
     Valid variants: "male", "female", "nb_ambiguous", "nb_label_only"
     Valid budgets:  "low", "medium", "high"
 
@@ -158,15 +166,18 @@ def run_experiment(
     )
     try:
         cmd_run(args)
-        return json.dumps(
-            {
-                "status": "complete",
-                "run_id": run_id,
-                "model": model,
-                "variants": variants,
-                "budgets": budgets,
-            }
-        )
+        return json.dumps({
+            "status": "complete",
+            "run_id": run_id,
+            "model": model,
+            "variants": variants,
+            "budgets": budgets,
+            "next_steps": (
+                "To get the Phoenix experiment view: call query_bigquery to retrieve "
+                "phoenix_dataset_id from the experiments table for this run_id, then "
+                "call list-experiments-for-dataset with that dataset_id."
+            ),
+        })
     except Exception as e:
         logger.error("run_experiment failed: %s", e)
         return f"Error: experiment run failed — {e}"
@@ -214,13 +225,11 @@ def analyze_run(
     )
     try:
         cmd_analyze(args)
-        return json.dumps(
-            {
-                "status": "complete",
-                "output_dir": output_dir,
-                "run_ids": run_ids,
-            }
-        )
+        return json.dumps({
+            "status": "complete",
+            "output_dir": output_dir,
+            "run_ids": run_ids,
+        })
     except Exception as e:
         logger.error("analyze_run failed: %s", e)
         return f"Error: analysis failed — {e}"
