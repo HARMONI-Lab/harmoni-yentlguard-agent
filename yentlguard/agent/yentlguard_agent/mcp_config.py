@@ -146,6 +146,7 @@ def build_phoenix_mcp_toolset():
         from google.adk.tools.mcp_tool.mcp_session_manager import (
             StdioConnectionParams,
         )
+        from mcp import StdioServerParameters
     except ImportError as e:
         logger.warning(
             "google-adk not installed — Phoenix MCP toolset disabled: %s", e
@@ -160,13 +161,15 @@ def build_phoenix_mcp_toolset():
 
     return McpToolset(
         connection_params=StdioConnectionParams(
-            command="npx",
-            args=[
-                "-y",
-                "@arizeai/phoenix-mcp@latest",
-                "--baseUrl", base_url,
-                "--apiKey", api_key,
-            ],
+            server_params=StdioServerParameters(
+                command="npx",
+                args=[
+                    "-y",
+                    "@arizeai/phoenix-mcp@latest",
+                    "--baseUrl", base_url,
+                    "--apiKey", api_key,
+                ],
+            )
         ),
         tool_filter=PHOENIX_MCP_TOOL_FILTER,
     )

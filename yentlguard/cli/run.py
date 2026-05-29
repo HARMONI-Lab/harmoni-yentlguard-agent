@@ -174,7 +174,7 @@ def cmd_run(args: argparse.Namespace) -> str:
         "Query: SELECT * FROM `%s` WHERE experiment_id = '%s'",
         experiment_id, "runs", experiment_id,
     )
-    if provider:
+    if provider and not getattr(args, "skip_shutdown", False):
         provider.shutdown()
         
     return experiment_id

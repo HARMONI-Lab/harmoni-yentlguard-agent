@@ -135,7 +135,7 @@ def cmd_baseline(args: argparse.Namespace) -> str:
             )
 
     logger.info("Baseline complete. experiment_id=%s", experiment_id)
-    if provider:
+    if provider and not getattr(args, "skip_shutdown", False):
         provider.shutdown()
         
     return experiment_id

@@ -64,8 +64,13 @@ def setup_phoenix_tracing(
         or os.environ.get("PHOENIX_PROJECT_NAME", "yentlguard")
     )
 
+    endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "").strip()
+    if endpoint and not endpoint.endswith("/v1/traces"):
+        endpoint = f"{endpoint.rstrip('/')}/v1/traces"
+
     _provider = register(
         project_name=resolved_project,
+        endpoint=endpoint if endpoint else None,
         batch=batch,
         auto_instrument=True,
         verbose=False,

@@ -7,6 +7,7 @@ Commands:
     analyze     Pull BigQuery data, compute H1–H5, write HTML + CSVs.
     report      Alias for analyze.
     agent       Launch the YentlGuard ADK agent.
+    prompts     Seed Phoenix with default prompt templates.
 
 Phoenix MCP integration:
     baseline and run now wire in PhoenixPromptManager (prompt versioning),
@@ -24,6 +25,7 @@ from .agent import cmd_agent
 from .analyze import cmd_analyze, cmd_report
 from .baseline import cmd_baseline
 from .run import cmd_run
+from .prompts import cmd_prompts
 from ._common import _DEFAULT_PHOENIX_MCP_ENDPOINT
 
 logging.basicConfig(
@@ -108,6 +110,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--label", default=None)
     p_report.add_argument("--notes", default=None)
     p_report.set_defaults(func=cmd_report)
+
+    # prompts
+    p_prompts = sub.add_parser(
+        "prompts",
+        help="Seed Phoenix with the default corrective and distractor prompts.",
+    )
+    p_prompts.set_defaults(func=cmd_prompts)
 
     # agent
     p_agent = sub.add_parser(

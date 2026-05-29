@@ -44,7 +44,7 @@ def run_baseline(
     combination if CRR computation is needed.
 
     Args:
-        model: Gemini model string — "gemini-2.5-pro" or "gemini-3.1-pro".
+        model: Gemini model string (e.g., "gemini-2.5-pro", "gemini-2.5-flash").
         budget: Thinking budget tier — "low", "medium", or "high".
         dataset_path: Path to dataset_quintets.csv produced by yentlbench prepare.
                       Default assumes CWD is the project root.
@@ -69,7 +69,7 @@ def run_baseline(
     import argparse
     from yentlguard.cli import cmd_baseline
 
-    args = argparse.Namespace(model=model, budget=budget, dataset=dataset_path)
+    args = argparse.Namespace(model=model, budget=budget, dataset=dataset_path, skip_shutdown=True)
     try:
         experiment_id = cmd_baseline(args)
         return json.dumps(
@@ -160,6 +160,7 @@ def run_experiment(
         phoenix_mcp_endpoint=os.environ.get(
             "PHOENIX_MCP_ENDPOINT", "https://app.phoenix.arize.com"
         ),
+        skip_shutdown=True,
     )
     try:
         experiment_id = cmd_run(args)

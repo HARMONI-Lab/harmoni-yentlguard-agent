@@ -279,14 +279,30 @@ class PhoenixPromptManager:
 
         try:
             from phoenix.client.types import PromptVersion
-            self._client.prompts.create(
-                name=phoenix_name,
-                version=PromptVersion(
-                    template=template,
-                    description=description or f"YentlGuard {name} prompt",
-                    tags=[tag] if tag else None,
-                ),
+            
+            # v16 API requires messages array and model properties
+            pv = PromptVersion(
+                [{"role": "user", "content": template}],
+                model_name="gemini-base",
+                model_provider="GOOGLE",
+                description=description or f"YentlGuard {name} prompt",
             )
+            
+            new_version = self._client.prompts.create(
+                name=phoenix_name,
+                version=pv,
+            )
+            
+            # Tagging is now a separate API call
+            if tag and new_version.id:
+                try:
+                    self._client.prompts.tags.create(
+                        prompt_version_id=new_version.id,
+                        name=tag
+                    )
+                except Exception as tag_err:
+                    logger.warning("Failed to tag prompt '%s' with '%s': %s", name, tag, tag_err)
+
             # Invalidate cache so next call fetches the new version
             self._cache.pop(name, None)
             logger.info(
@@ -596,7 +612,10 @@ class PhoenixExperimentRegistry:
             kwargs["dataset_id"] = dataset_id
 
             experiment = self._client.experiments.create(**kwargs)
-            experiment_id = getattr(experiment, "id", None) or str(experiment)
+            if isinstance(experiment, dict) and "id" in experiment:
+                experiment_id = str(experiment["id"])
+            else:
+                experiment_id = str(getattr(experiment, "id", None) or experiment)
             logger.info(
                 "Registered Phoenix experiment '%s' (id=%s)",
                 label, experiment_id,
