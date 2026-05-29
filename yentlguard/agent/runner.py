@@ -38,6 +38,13 @@ Span experiment_id tagging:
     on every enriched generation span. This is required for
     annotate_spans_with_verdicts in phoenix_tools.py to locate pass_number=2
     spans by experiment_id without relying on Phoenix MCP custom attribute filtering.
+
+OTel context propagation:
+    run_in_executor() spawns OS threads that do not inherit the caller's OTel
+    context automatically. _call_branch captures the current context before
+    entering the executor and attaches it inside the thread via
+    opentelemetry.context.attach / detach. Without this, enrich_generation_span
+    writes to a no-op span and Pass 2/3a/3b/3c traces are silently dropped.
 """
 
 import asyncio
@@ -49,6 +56,7 @@ from pydantic import BaseModel, Field
 
 from google import genai
 from google.genai import types
+from opentelemetry import context as otel_context
 from opentelemetry import trace as otel_trace
 
 from yentlguard.config import GCP_LOCATION, GCP_PROJECT_ID
@@ -69,9 +77,6 @@ if TYPE_CHECKING:
     from yentlguard.mcp.phoenix_manager import PhoenixPromptManager
 
 logger = logging.getLogger(__name__)
-
-# Remove redundant override
-# GCP_PROJECT_ID and GCP_LOCATION are imported from yentlguard.config
 
 DEMOGRAPHIC_TRIGGER_TOKENS = {
     "female", "woman", "girl", "lady", "she", "her",
@@ -171,6 +176,11 @@ class YentlGuardRunner:
     branches execute concurrently via asyncio.gather(): the corrective re-prompt
     and three demographically-blind distractor prompts. CRR is computed for all
     four branches against the same nb_ambiguous baseline.
+
+    OTel context propagation:
+        Each branch runs in a thread pool executor (run_in_executor). OTel
+        context is captured before entering the executor and attached inside
+        the thread so span attributes are written to the correct trace.
 
     Parameters
     ----------
@@ -405,7 +415,7 @@ class YentlGuardRunner:
                         if run.pass1_delta_m and run.pass1_delta_m.delta_m
                         else -999
                     ),
-                    has_trigger,  # was: demographic_trigger (NameError — undefined variable)
+                    has_trigger,
                 )
                 return run
 
@@ -544,6 +554,12 @@ class YentlGuardRunner:
 
         Each branch is a completely independent Gemini call forked from the
         same Pass 1 state. No context is shared — causal isolation guarantee.
+
+        OTel context propagation:
+            run_in_executor spawns OS threads that do not inherit the caller's
+            OTel context. We capture the current context before entering the
+            executor and attach it inside the thread so that enrich_generation_span
+            writes to the correct trace rather than a detached no-op span.
         """
         _has_baseline = (
             run.baseline_delta_m is not None
@@ -562,15 +578,30 @@ class YentlGuardRunner:
                 branch_schema = DistractorBResponse if label == "3b" else TriageResponse
                 branch_config = self._build_config(response_schema=branch_schema)
 
-                loop = asyncio.get_running_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self._client.models.generate_content(
-                        model=self.model_version,
-                        contents=prompt,
-                        config=branch_config,
-                    ),
-                )
+                # Capture the current OTel context before entering the executor.
+                # run_in_executor() spawns a new OS thread which does not inherit
+                # the caller's OTel context automatically. Without this, all
+                # enrich_generation_span calls in the thread write to a no-op span
+                # and Pass 2/3a/3b/3c traces are silently dropped from Phoenix.
+                current_ctx = otel_context.get_current()
+
+                def _generate_in_thread() -> types.GenerateContentResponse:
+                    # Attach the parent span context so the generate_content call
+                    # and the subsequent enrich_generation_span call both land in
+                    # the correct trace.
+                    token = otel_context.attach(current_ctx)
+                    try:
+                        return self._client.models.generate_content(
+                            model=self.model_version,
+                            contents=prompt,
+                            config=branch_config,
+                        )
+                    finally:
+                        otel_context.detach(token)
+
+                event_loop = asyncio.get_running_loop()
+                response = await event_loop.run_in_executor(None, _generate_in_thread)
+
                 raw_text = response.text or ""
                 dm_result = compute_delta_m(response)
                 esi = dm_result.esi_token if dm_result else None
@@ -593,6 +624,10 @@ class YentlGuardRunner:
                     )
 
                 pass_num = {"corrective": 2, "3a": 3, "3b": 4, "3c": 5}.get(label, 2)
+
+                # enrich_generation_span is called here (in the async coroutine,
+                # not the thread) so it runs in the correct OTel context without
+                # needing an explicit attach/detach.
                 enrich_generation_span(
                     span=otel_trace.get_current_span(),
                     vignette_id=vignette_id,
@@ -631,4 +666,3 @@ class YentlGuardRunner:
         tasks = [_call_branch(label, prompt) for label, prompt in branches.items()]
         results = await asyncio.gather(*tasks)
         return dict(results)
-

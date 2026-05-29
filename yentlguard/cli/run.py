@@ -17,7 +17,7 @@ def cmd_run(args: argparse.Namespace) -> str:
     from yentlguard.mcp.baseline_lookup import BQBackend
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
-    provider = setup_phoenix_tracing()
+    provider = setup_phoenix_tracing(project_name="yentlguard-runs")
 
     prompt_mgr, dataset_mgr, expt_registry = _build_phoenix_components()
 
@@ -25,10 +25,11 @@ def cmd_run(args: argparse.Namespace) -> str:
 
     # Fetch dataset metadata to resolve undefined variables
     df_all = dataset_mgr.get_vignettes_df()
-    phoenix_dataset_id = dataset_mgr.dataset_id
+    
     if df_all.empty:
-        logger.error("Failed to load vignettes dataset.")
+        logger.error("Failed to load vignettes dataset from Phoenix. Ensure the corpus 'yentlbench-quintets-all-variants' is uploaded to Phoenix first.")
         return ""
+    phoenix_dataset_id = dataset_mgr.dataset_id
     n_per_variant = len(df_all) // len(df_all["gender_variant"].unique())
 
     # Register the experiment in Phoenix FIRST to obtain the official experiment_id.
@@ -138,6 +139,19 @@ def cmd_run(args: argparse.Namespace) -> str:
                                 esi_ground_truth=esi_gt,
                                 clinical_category=clinical_cat,
                             )
+
+                            # Force-flush after each vignette so spans are exported
+                            # to Phoenix before the next generate_content call.
+                            # asyncio.to_thread runs in a thread pool, so we flush
+                            # from the async context after the thread returns.
+                            if provider is not None and hasattr(provider, "force_flush"):
+                                try:
+                                    provider.force_flush(timeout_millis=5000)
+                                except Exception as flush_err:
+                                    logger.debug(
+                                        "force_flush warning (non-fatal): %s", flush_err
+                                    )
+
                             if run.crr:
                                 dist_crrs = [
                                     r.crr

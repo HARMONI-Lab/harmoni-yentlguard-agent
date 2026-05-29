@@ -23,7 +23,7 @@ load_dotenv(Path(__file__).resolve().parents[4] / ".env")
 from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 from yentlguard.config import GCP_PROJECT_ID, GCP_LOCATION
 
-setup_phoenix_tracing(batch=False)
+setup_phoenix_tracing(project_name="yentlguard-agent", batch=False)
 
 from google.adk.agents import Agent
 from google.adk.tools import FunctionTool

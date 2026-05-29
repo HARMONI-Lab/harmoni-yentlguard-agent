@@ -99,6 +99,10 @@ _PROMPT_NAMES: dict[str, str] = {
     "distractor_c": "yentlguard-distractor-protocol",
 }
 
+# Name used when the full quintet corpus is stored in Phoenix.
+# Must match the dataset_name passed to push_vignette_corpus.
+_CORPUS_DATASET_NAME = "yentlbench-quintets-all-variants"
+
 
 class PhoenixPromptManager:
     """
@@ -184,9 +188,6 @@ class PhoenixPromptManager:
 
         try:
             prompt = self._client.prompts.get(name=phoenix_name)
-            # Extract the text from the prompt template.
-            # Phoenix prompt templates surface as a list of messages for chat
-            # models; we extract the last user-role message content.
             template = self._extract_template_text(prompt)
             if template:
                 self._cache[name] = template
@@ -214,11 +215,9 @@ class PhoenixPromptManager:
         that content.
         """
         try:
-            # Chat template: list of {role, content} dicts
             if hasattr(prompt, "template") and hasattr(prompt.template, "messages"):
                 messages = prompt.template.messages
                 if messages:
-                    # Take the last user-role message
                     user_msgs = [
                         m for m in messages
                         if getattr(m, "role", "") == "user"
@@ -227,7 +226,6 @@ class PhoenixPromptManager:
                         content = user_msgs[-1].content
                         if isinstance(content, str):
                             return content
-                        # Content may be a list of content blocks
                         if isinstance(content, list):
                             texts = [
                                 block.get("text", "")
@@ -248,10 +246,6 @@ class PhoenixPromptManager:
     ) -> bool:
         """
         Push a prompt template to Phoenix as a new version.
-
-        Use this to log prompt iterations during development. Each push
-        creates a new version in Phoenix, visible in the Prompts UI and
-        queryable via list-prompts MCP tool.
 
         Parameters
         ----------
@@ -279,21 +273,19 @@ class PhoenixPromptManager:
 
         try:
             from phoenix.client.types import PromptVersion
-            
-            # v16 API requires messages array and model properties
+
             pv = PromptVersion(
                 [{"role": "user", "content": template}],
                 model_name="gemini-base",
                 model_provider="GOOGLE",
                 description=description or f"YentlGuard {name} prompt",
             )
-            
+
             new_version = self._client.prompts.create(
                 name=phoenix_name,
                 version=pv,
             )
-            
-            # Tagging is now a separate API call
+
             if tag and new_version.id:
                 try:
                     self._client.prompts.tags.create(
@@ -303,7 +295,6 @@ class PhoenixPromptManager:
                 except Exception as tag_err:
                     logger.warning("Failed to tag prompt '%s' with '%s': %s", name, tag, tag_err)
 
-            # Invalidate cache so next call fetches the new version
             self._cache.pop(name, None)
             logger.info(
                 "Pushed prompt '%s' to Phoenix as '%s'", name, phoenix_name
@@ -317,11 +308,6 @@ class PhoenixPromptManager:
         """
         Push all hardcoded defaults to Phoenix as the initial prompt versions.
         Run once to seed Phoenix with the baseline prompts before experiments.
-
-        Usage:
-            from yentlguard.mcp.phoenix_manager import PhoenixPromptManager
-            mgr = PhoenixPromptManager()
-            mgr.push_all_defaults()
         """
         for name, template in _DEFAULTS.items():
             self.push_prompt(
@@ -335,33 +321,41 @@ class PhoenixPromptManager:
 class PhoenixDatasetManager:
     """
     Uploads the YentlBench vignette corpus and curated anomaly subsets
-    to Phoenix as versioned datasets.
+    to Phoenix as versioned datasets, and retrieves corpus rows from Phoenix
+    for use by cmd_run without requiring the source CSV on disk.
 
-    Datasets stored in Phoenix:
-        - Full vignette quintet corpus (uploaded once, referenced by experiments)
-        - Anomaly subsets: high gate-fire categories, likely-sycophancy cases
+    Key attributes populated after push_vignette_corpus or a successful
+    _resolve_corpus_dataset call:
 
-    These datasets are queryable via list-datasets and get-dataset MCP tools,
-    and can be used to run targeted re-evaluation experiments without a full
-    70-vignette sweep.
+        dataset_id : str | None
+            Phoenix dataset ID for the corpus dataset. Used by
+            PhoenixExperimentRegistry.register() and cmd_run.
 
     Parameters
     ----------
     base_url / api_key: same as PhoenixPromptManager.
+    corpus_dataset_name:
+        Phoenix dataset name used for the full quintet corpus. Must match
+        the name passed to push_vignette_corpus. Defaults to
+        _CORPUS_DATASET_NAME ("yentlbench-quintets-all-variants").
     """
 
     def __init__(
         self,
         base_url: str | None = None,
         api_key: str | None = None,
+        corpus_dataset_name: str = _CORPUS_DATASET_NAME,
     ):
         self._base_url = (
             base_url
             or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
         )
         self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
+        self._corpus_dataset_name = corpus_dataset_name
         self._client = None
         self._available = False
+        # Populated by push_vignette_corpus or _resolve_corpus_dataset.
+        self.dataset_id: str | None = None
         self._init_client()
 
     def _init_client(self) -> None:
@@ -379,34 +373,181 @@ class PhoenixDatasetManager:
                 e,
             )
 
+    def _resolve_corpus_dataset(self) -> str | None:
+        """
+        Return the Phoenix dataset ID for the corpus dataset, looking it up
+        by name if dataset_id is not already set.
+
+        Returns None if Phoenix is unavailable or the dataset does not exist.
+        """
+        if self.dataset_id is not None:
+            return self.dataset_id
+
+        if not self._available or self._client is None:
+            return None
+
+        try:
+            datasets = self._client.datasets.list()
+            dataset_names = []
+            for ds in datasets:
+                # Try different ways to get the dataset name
+                name = None
+                if hasattr(ds, 'name'):
+                    name = getattr(ds, 'name', None)
+                elif isinstance(ds, dict) and 'name' in ds:
+                    name = ds['name']
+                
+                if name:
+                    dataset_names.append(name)
+                    if name == self._corpus_dataset_name:
+                        # Get the dataset ID
+                        dataset_id = None
+                        if hasattr(ds, 'id'):
+                            dataset_id = str(getattr(ds, 'id', ds))
+                        elif isinstance(ds, dict) and 'id' in ds:
+                            dataset_id = str(ds['id'])
+                        
+                        if dataset_id:
+                            self.dataset_id = dataset_id
+                            logger.info(
+                                "PhoenixDatasetManager: resolved corpus dataset '%s' → id=%s",
+                                name,
+                                self.dataset_id,
+                            )
+                            return self.dataset_id
+                else:
+                    dataset_names.append("unnamed")
+            
+            logger.warning(
+                "PhoenixDatasetManager: corpus dataset '%s' not found in Phoenix. "
+                "Run setup_phoenix.py --dataset <path> to upload it first. "
+                "Available datasets: %s",
+                self._corpus_dataset_name,
+                dataset_names,
+            )
+        except Exception as e:
+            logger.warning(
+                "PhoenixDatasetManager: dataset list failed (%s).", e
+            )
+        return None
+
+    def get_vignettes_df(self) -> pd.DataFrame:
+        """
+        Retrieve the full vignette corpus from Phoenix as a DataFrame.
+
+        Pulls rows from the corpus dataset stored under
+        self._corpus_dataset_name. The returned DataFrame has the same
+        schema that cmd_run expects:
+
+            source_stay_id      str
+            vignette_text       str
+            gender_variant      str   (same as demographic_variant)
+            clinical_category   str
+            esi_ground_truth    str | None
+            acuity              str | None  (alias for esi_ground_truth)
+            chiefcomplaint      str | None  (alias for clinical_category)
+
+        Returns an empty DataFrame on any failure so callers can check
+        .empty and exit gracefully.
+        """
+        dataset_id = self._resolve_corpus_dataset()
+        if dataset_id is None:
+            return pd.DataFrame()
+
+        if not self._available or self._client is None:
+            return pd.DataFrame()
+
+        try:
+            # Instead of trying to get the dataset object, directly get examples
+            # Make HTTP request to get examples since the client method isn't working
+            import httpx
+            import json
+            
+            # Build the examples URL
+            examples_url = f"{self._base_url}/v1/datasets/{dataset_id}/examples"
+            headers = {}
+            if self._api_key:
+                headers["authorization"] = f"Bearer {self._api_key}"
+            
+            response = httpx.get(examples_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            # Parse the JSON response
+            data = response.json()
+            examples = data.get("data", []) if isinstance(data, dict) else []
+            
+            # Phoenix returns examples as a list of objects or dicts.
+            # Normalise to a list of flat dicts.
+            rows = []
+            for ex in examples:
+                if isinstance(ex, dict):
+                    # Flatten the example structure
+                    flat = {}
+                    # Add input fields
+                    if "input" in ex and isinstance(ex["input"], dict):
+                        flat.update(ex["input"])
+                    # Add output fields
+                    if "output" in ex and isinstance(ex["output"], dict):
+                        flat.update(ex["output"])
+                    # Add metadata fields
+                    if "metadata" in ex and isinstance(ex["metadata"], dict):
+                        flat.update(ex["metadata"])
+                    # Add any other top-level fields
+                    for key, value in ex.items():
+                        if key not in ("input", "output", "metadata") and not isinstance(value, (dict, list)):
+                            flat[key] = value
+                    rows.append(flat)
+
+            if not rows:
+                logger.warning(
+                    "PhoenixDatasetManager: corpus dataset '%s' returned 0 examples.",
+                    self._corpus_dataset_name,
+                )
+                return pd.DataFrame()
+
+            df = pd.DataFrame(rows)
+
+            # Ensure cmd_run can filter by gender_variant (stored as
+            # demographic_variant when the corpus was uploaded).
+            if "demographic_variant" in df.columns and "gender_variant" not in df.columns:
+                df["gender_variant"] = df["demographic_variant"]
+
+            # Provide acuity and chiefcomplaint aliases so build_prompt and
+            # esi_gt extraction work without changes to cmd_run.
+            if "esi_ground_truth" in df.columns and "acuity" not in df.columns:
+                df["acuity"] = df["esi_ground_truth"]
+            if "clinical_category" in df.columns and "chiefcomplaint" not in df.columns:
+                df["chiefcomplaint"] = df["clinical_category"]
+
+            logger.info(
+                "PhoenixDatasetManager: loaded %d examples from corpus dataset '%s'",
+                len(df),
+                self._corpus_dataset_name,
+            )
+            return df
+
+        except Exception as e:
+            logger.error(
+                "PhoenixDatasetManager: get_vignettes_df failed (%s).", e
+            )
+            return pd.DataFrame()
+
     def push_vignette_corpus(
         self,
         df: pd.DataFrame,
-        dataset_name: str = "yentlbench-quintets",
+        dataset_name: str = _CORPUS_DATASET_NAME,
     ) -> str | None:
         """
         Upload the full YentlBench vignette corpus to Phoenix as a dataset.
 
-        Each row in df should represent one vignette × variant combination.
-        The dataset is the canonical input for all YentlGuard experiments.
+        Sets self.dataset_id on success so subsequent get_vignettes_df calls
+        use the same dataset without a redundant list() round-trip.
 
         Expected df columns:
-            source_stay_id      vignette identifier
-            vignette_text       full prompt text for this variant
-            demographic_variant "male" | "female" | "nb_ambiguous" etc.
-            clinical_category   chief complaint tag
-            esi_ground_truth    ground truth ESI level (1–5 as string)
+            source_stay_id, vignette_text, demographic_variant,
+            clinical_category, esi_ground_truth
 
-        Parameters
-        ----------
-        df:
-            DataFrame of vignette rows.
-        dataset_name:
-            Phoenix dataset name. Default: "yentlbench-quintets".
-
-        Returns
-        -------
-        Phoenix dataset ID on success, None on failure.
+        Returns Phoenix dataset ID on success, None on failure.
         """
         if not self._available or self._client is None:
             logger.warning("Phoenix unavailable — skipping vignette corpus upload.")
@@ -432,11 +573,14 @@ class PhoenixDatasetManager:
                 metadata_keys=["source_stay_id"],
             )
             dataset_id = getattr(dataset, "id", None) or str(dataset)
+            self.dataset_id = str(dataset_id)
+            # Keep the corpus name in sync so _resolve_corpus_dataset finds it.
+            self._corpus_dataset_name = dataset_name
             logger.info(
                 "Pushed vignette corpus to Phoenix dataset '%s' (id=%s, %d rows)",
-                dataset_name, dataset_id, len(df),
+                dataset_name, self.dataset_id, len(df),
             )
-            return dataset_id
+            return self.dataset_id
         except Exception as e:
             logger.warning("Failed to push vignette corpus: %s", e)
             return None
@@ -452,11 +596,6 @@ class PhoenixDatasetManager:
         """
         Push a curated vignette subset to Phoenix as a named dataset.
 
-        Use this when the agent identifies vignettes worth targeted re-evaluation:
-            - All gate-fired chest_pain × female vignettes
-            - All vignettes with likely_sycophancy verdict
-            - ESI 2↔3 boundary cases with ΔM < 0.5
-
         Parameters
         ----------
         vignette_ids:
@@ -466,14 +605,11 @@ class PhoenixDatasetManager:
         experiment_id:
             The experiment_id that identified this subset (first 8 chars used in name).
         reason:
-            Short slug describing the subset, e.g. "chest-pain-gate-fired",
-            "likely-sycophancy", "esi-boundary".
+            Short slug describing the subset, e.g. "chest-pain-gate-fired".
         description:
             Optional detailed description.
 
-        Returns
-        -------
-        Phoenix dataset ID on success, None on failure.
+        Returns Phoenix dataset ID on success, None on failure.
         """
         if not self._available or self._client is None:
             logger.warning("Phoenix unavailable — skipping anomaly subset push.")
@@ -504,7 +640,7 @@ class PhoenixDatasetManager:
                 "Pushed anomaly subset '%s' to Phoenix (id=%s, %d vignettes)",
                 dataset_name, dataset_id, len(subset),
             )
-            return dataset_id
+            return str(dataset_id)
         except Exception as e:
             logger.warning("Failed to push anomaly subset '%s': %s", dataset_name, e)
             return None
@@ -513,11 +649,6 @@ class PhoenixDatasetManager:
 class PhoenixExperimentRegistry:
     """
     Registers YentlGuard runs as Phoenix experiments.
-
-    Once a run is registered, the ADK agent can use list-experiments and
-    get-experiment MCP tools to retrieve results and narrate findings.
-    The experiment metadata includes the BigQuery experiment_id as a link between
-    Phoenix and BQ data.
 
     Parameters
     ----------
@@ -566,27 +697,8 @@ class PhoenixExperimentRegistry:
         """
         Register a YentlGuard experiment batch in Phoenix.
 
-        Parameters
-        ----------
-        label:
-            Human-readable experiment label (same as BQ experiments.label).
-        dataset_id:
-            Phoenix dataset ID for the vignette corpus used in this run.
-            None if the corpus was not uploaded to Phoenix.
-        model_version:
-            Gemini model string, e.g. "gemini-2.5-pro".
-        thinking_budget:
-            "low" | "medium" | "high" | None.
-        variants:
-            Demographic variants included.
-        vignette_count:
-            Total vignettes processed.
-        notes:
-            Optional free-text notes.
-
-        Returns
-        -------
-        Phoenix experiment ID on success. Raises exception on failure.
+        Returns Phoenix experiment ID. Raises on failure — Phoenix is a
+        hard dependency for experiment_id generation.
         """
         if not self._available or self._client is None:
             raise RuntimeError("Phoenix unavailable — experiment registration failed.")
@@ -601,16 +713,17 @@ class PhoenixExperimentRegistry:
             metadata["notes"] = notes
 
         if not dataset_id:
-            raise ValueError(f"Skipping Phoenix experiment registration for '{label}' because no dataset_id was provided (corpus not uploaded).")
+            raise ValueError(
+                f"Skipping Phoenix experiment registration for '{label}' because "
+                "no dataset_id was provided (corpus not uploaded)."
+            )
 
         try:
-            # Phoenix experiment creation requires a dataset.
             kwargs: dict = {
                 "experiment_name": label,
                 "experiment_metadata": metadata,
+                "dataset_id": dataset_id,
             }
-            kwargs["dataset_id"] = dataset_id
-
             experiment = self._client.experiments.create(**kwargs)
             if isinstance(experiment, dict) and "id" in experiment:
                 experiment_id = str(experiment["id"])
@@ -638,14 +751,10 @@ def annotate_span_with_verdict(
     """
     Write a sycophancy verdict annotation directly onto a Phoenix span.
 
-    This closes the loop between BigQuery metric computation and Phoenix
-    observability: the agent identifies a verdict from BQ, then writes it
-    back to the span so it's visible in the Phoenix trace view.
-
     Parameters
     ----------
     span_id:
-        Phoenix span ID (from list-spans or get-span MCP tool response).
+        Phoenix span ID.
     vignette_id:
         YentlBench vignette identifier (for logging).
     sycophancy_verdict:
@@ -657,9 +766,7 @@ def annotate_span_with_verdict(
     base_url / api_key:
         Phoenix connection params. Fall back to env vars.
 
-    Returns
-    -------
-    True on success, False on failure.
+    Returns True on success, False on failure.
     """
     _base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
     _api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")

@@ -6,8 +6,6 @@ logger = logging.getLogger("yentlguard.cli")
 
 def cmd_baseline(args: argparse.Namespace) -> str:
     """Populate Phoenix with nb_ambiguous baseline spans."""
-    import pathlib as _pathlib
-
     import pandas as _pd
     from yentlbench.local_runner.prompt import build_prompt as _build_prompt
 
@@ -15,48 +13,41 @@ def cmd_baseline(args: argparse.Namespace) -> str:
     from yentlguard.eval.bq_writer import BQWriter
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
-    provider = setup_phoenix_tracing()
+    provider = setup_phoenix_tracing(project_name="yentlguard-runs")
 
     prompt_mgr, dataset_mgr, expt_registry = _build_phoenix_components()
 
-    dataset_path = _pathlib.Path(args.dataset)
-    if not dataset_path.exists():
+    # Fetch vignettes from Phoenix dataset - no local CSV fallback
+    df_all = dataset_mgr.get_vignettes_df()
+    if df_all.empty:
         logger.error(
-            "Dataset not found: %s\n"
-            "Run: yentlbench prepare  (requires MIMIC-IV-ED data)",
-            dataset_path,
+            "Failed to load vignettes dataset from Phoenix. "
+            "Ensure the vignette corpus 'yentlbench-quintets-all-variants' is uploaded to Phoenix first. "
+            "Run setup_phoenix.py to upload the dataset."
         )
         raise SystemExit(1)
-
-    df = _pd.read_csv(dataset_path)
-    df = df[df["acuity"].notna()]
-    df_variant = df[df["gender_variant"] == "nb_ambiguous"]
+    
+    # Filter for nb_ambiguous variant
+    df_variant = df_all[df_all["gender_variant"] == "nb_ambiguous"]
+    if df_variant.empty:
+        logger.error(
+            "No nb_ambiguous vignettes found in Phoenix dataset. "
+            "Ensure the corpus contains this variant."
+        )
+        raise SystemExit(1)
+        
     logger.info(
-        "Loaded %d nb_ambiguous vignettes from %s", len(df_variant), dataset_path
+        "Loaded %d nb_ambiguous vignettes from Phoenix dataset", len(df_variant)
     )
 
-    corpus_df = df_variant.copy()
-    corpus_df["vignette_text"] = corpus_df.apply(
-        lambda r: _build_prompt(r.to_dict(), "nb_ambiguous"), axis=1
-    )
-    corpus_df["esi_ground_truth"] = corpus_df["acuity"].apply(
-        lambda v: str(int(v)) if _pd.notna(v) else None
-    )
-    corpus_df["clinical_category"] = corpus_df.get(
-        "chiefcomplaint", _pd.Series(dtype=str)
-    ).fillna("")
-    corpus_df["source_stay_id"] = corpus_df["source_stay_id"].astype(str)
-    corpus_df["demographic_variant"] = "nb_ambiguous"
-
-    phoenix_dataset_id = dataset_mgr.push_vignette_corpus(
-        df=corpus_df[[
-            "source_stay_id",
-            "vignette_text",
-            "demographic_variant",
-            "clinical_category",
-            "esi_ground_truth",
-        ]],
-        dataset_name=f"yentlbench-nb-ambiguous-{args.model}-{args.budget}",
+    # Use the existing Phoenix dataset ID
+    phoenix_dataset_id = dataset_mgr.dataset_id
+    
+    # Ensure necessary columns exist with proper data types
+    df_variant = df_variant.copy()
+    df_variant["source_stay_id"] = df_variant["source_stay_id"].astype(str)
+    df_variant["esi_ground_truth"] = df_variant["esi_ground_truth"].apply(
+        lambda v: str(int(float(v))) if _pd.notna(v) and v != '' else None
     )
 
     runner = YentlGuardRunner(
@@ -102,7 +93,7 @@ def cmd_baseline(args: argparse.Namespace) -> str:
 
         for _, row in df_variant.iterrows():
             vignette = row.to_dict()
-            vignette_id = str(int(vignette["source_stay_id"]))
+            vignette_id = str(vignette["source_stay_id"])
             if vignette_id in completed:
                 continue
             text = _build_prompt(vignette, "nb_ambiguous")
@@ -116,11 +107,11 @@ def cmd_baseline(args: argparse.Namespace) -> str:
             )
 
             esi_gt = (
-                str(int(vignette["acuity"]))
-                if not _pd.isna(vignette.get("acuity"))
+                str(int(float(vignette["esi_ground_truth"])))
+                if not _pd.isna(vignette.get("esi_ground_truth")) and vignette.get("esi_ground_truth")
                 else None
             )
-            cat = str(vignette.get("chiefcomplaint", "")) or None
+            cat = str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", "")) or None
             bq.write(run=run, esi_ground_truth=esi_gt, clinical_category=cat)
 
             dm = (
