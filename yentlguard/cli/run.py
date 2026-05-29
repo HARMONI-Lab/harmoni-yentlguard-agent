@@ -23,6 +23,14 @@ def cmd_run(args: argparse.Namespace) -> str:
 
     mcp_client = BQBackend(project_name="yentlguard")
 
+    # Fetch dataset metadata to resolve undefined variables
+    df_all = dataset_mgr.get_vignettes_df()
+    phoenix_dataset_id = dataset_mgr.dataset_id
+    if df_all.empty:
+        logger.error("Failed to load vignettes dataset.")
+        return ""
+    n_per_variant = len(df_all) // len(df_all["gender_variant"].unique())
+
     # Register the experiment in Phoenix FIRST to obtain the official experiment_id.
     # Phoenix is now a hard dependency.
     experiment_id = expt_registry.register(

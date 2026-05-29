@@ -284,6 +284,7 @@ class PhoenixPromptManager:
                 version=PromptVersion(
                     template=template,
                     description=description or f"YentlGuard {name} prompt",
+                    tags=[tag] if tag else None,
                 ),
             )
             # Invalidate cache so next call fetches the new version

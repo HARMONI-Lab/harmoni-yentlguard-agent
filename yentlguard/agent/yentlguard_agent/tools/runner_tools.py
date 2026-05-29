@@ -197,8 +197,8 @@ def analyze_run(
 
     Returns:
         JSON object with output_dir, experiment_ids, and status on success.
-    """
-    Pull completed run data from BigQuery, compute H1–H5 summary statistics,
+    
+    Pull completed run data from BigQuery, compute H1-H5 summary statistics,
     and write a self-contained HTML report plus CSV files to the output directory.
 
     Use this when the user asks for a full report on one or more completed runs.
