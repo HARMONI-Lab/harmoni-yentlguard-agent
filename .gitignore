@@ -142,3 +142,6 @@ mysql_dump.log
 
 *dataset_output/*
 *results/*
+
+*adk/*
+*test/*
