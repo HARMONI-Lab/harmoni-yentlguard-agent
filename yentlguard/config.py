@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── FILL THESE IN ──────────────────────────────────────────────────────────────
-GCP_PROJECT_ID = os.environ.get("YENTLGUARD_GCP_PROJECT", "YOUR_GCP_PROJECT_ID")
+GCP_PROJECT_ID = os.environ.get("YENTLGUARD_GCP_PROJECT", "yentlguard")
 GCP_LOCATION   = os.environ.get("YENTLGUARD_GCP_LOCATION", "YOUR_GCP_LOCATION")   # e.g. "us-central1"
 BQ_DATASET_ID  = os.environ.get("YENTLGUARD_BQ_DATASET",  "YOUR_BQ_DATASET_ID")   # e.g. "yentlguard"
 BQ_LOCATION    = "US"   # BigQuery dataset region — usually fine to leave as US

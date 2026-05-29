@@ -428,9 +428,9 @@ class PhoenixDatasetManager:
         self,
         vignette_ids: list[str],
         base_df: pd.DataFrame,
-        run_id: str,
+        experiment_id: str,
         reason: str,
-        description: str = "",
+        description: str | None = None,
     ) -> str | None:
         """
         Push a curated vignette subset to Phoenix as a named dataset.
@@ -446,13 +446,13 @@ class PhoenixDatasetManager:
             List of source_stay_id values to include.
         base_df:
             Full vignette DataFrame (same schema as push_vignette_corpus).
-        run_id:
-            The run_id that identified this subset (first 8 chars used in name).
+        experiment_id:
+            The experiment_id that identified this subset (first 8 chars used in name).
         reason:
             Short slug describing the subset, e.g. "chest-pain-gate-fired",
             "likely-sycophancy", "esi-boundary".
         description:
-            Human-readable description stored with the dataset.
+            Optional detailed description.
 
         Returns
         -------
@@ -472,7 +472,7 @@ class PhoenixDatasetManager:
             )
             return None
 
-        dataset_name = f"yentlguard-{reason}-{run_id[:8]}"
+        dataset_name = f"yentlguard-{reason}-{experiment_id[:8]}"
 
         try:
             dataset = self._client.datasets.create_dataset(
@@ -499,7 +499,7 @@ class PhoenixExperimentRegistry:
 
     Once a run is registered, the ADK agent can use list-experiments and
     get-experiment MCP tools to retrieve results and narrate findings.
-    The experiment metadata includes the BigQuery run_id as a link between
+    The experiment metadata includes the BigQuery experiment_id as a link between
     Phoenix and BQ data.
 
     Parameters
@@ -538,7 +538,6 @@ class PhoenixExperimentRegistry:
 
     def register(
         self,
-        run_id: str,
         label: str,
         dataset_id: str | None,
         model_version: str,
@@ -546,15 +545,12 @@ class PhoenixExperimentRegistry:
         variants: list[str],
         vignette_count: int,
         notes: str | None = None,
-    ) -> str | None:
+    ) -> str:
         """
         Register a YentlGuard experiment batch in Phoenix.
 
         Parameters
         ----------
-        run_id:
-            BigQuery experiment batch UUID. Stored as metadata — this is the
-            join key between Phoenix experiments and BQ metric rows.
         label:
             Human-readable experiment label (same as BQ experiments.label).
         dataset_id:
@@ -573,18 +569,12 @@ class PhoenixExperimentRegistry:
 
         Returns
         -------
-        Phoenix experiment ID on success, None on failure.
+        Phoenix experiment ID on success. Raises exception on failure.
         """
         if not self._available or self._client is None:
-            logger.info(
-                "Phoenix unavailable — experiment '%s' not registered in Phoenix "
-                "(BQ record still written).",
-                label,
-            )
-            return None
+            raise RuntimeError("Phoenix unavailable — experiment registration failed.")
 
         metadata = {
-            "bq_run_id": run_id,
             "model_version": model_version,
             "thinking_budget": thinking_budget or "disabled",
             "variants": ",".join(variants),
@@ -593,29 +583,27 @@ class PhoenixExperimentRegistry:
         if notes:
             metadata["notes"] = notes
 
+        if not dataset_id:
+            raise ValueError(f"Skipping Phoenix experiment registration for '{label}' because no dataset_id was provided (corpus not uploaded).")
+
         try:
             # Phoenix experiment creation requires a dataset.
-            # If dataset_id is None (corpus not uploaded), we register without
-            # a linked dataset — the experiment still appears in the UI.
             kwargs: dict = {
-                "name": label,
-                "metadata": metadata,
+                "experiment_name": label,
+                "experiment_metadata": metadata,
             }
-            if dataset_id:
-                kwargs["dataset_id"] = dataset_id
+            kwargs["dataset_id"] = dataset_id
 
             experiment = self._client.experiments.create(**kwargs)
             experiment_id = getattr(experiment, "id", None) or str(experiment)
             logger.info(
-                "Registered Phoenix experiment '%s' (id=%s, bq_run_id=%s)",
-                label, experiment_id, run_id,
+                "Registered Phoenix experiment '%s' (id=%s)",
+                label, experiment_id,
             )
             return experiment_id
         except Exception as e:
-            logger.warning(
-                "Failed to register Phoenix experiment '%s': %s", label, e
-            )
-            return None
+            logger.error("Failed to register Phoenix experiment '%s': %s", label, e)
+            raise
 
 
 def annotate_span_with_verdict(

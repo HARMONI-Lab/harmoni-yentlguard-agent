@@ -63,7 +63,7 @@ def _recovery_class(crr: float | None) -> str | None:
 
 def run_to_rows(
     run: VignetteRun,
-    run_id: str,
+    experiment_id: str,
     esi_ground_truth: str | None = None,
     clinical_category: str | None = None,
     gate_threshold: float = 1.0,
@@ -73,7 +73,7 @@ def run_to_rows(
     """
     now = datetime.now(timezone.utc).isoformat()
     base = {
-        "run_id": run_id,
+        "experiment_id": experiment_id,
         "created_at": now,
         "vignette_id": run.vignette_id,
         "clinical_category": clinical_category,
@@ -96,6 +96,7 @@ def run_to_rows(
         "prompt_version_distractor_c": run.prompt_version_ids.get("distractor_c"),
         "errors": run.errors,
     }
+
 
     rows = []
 
@@ -252,32 +253,28 @@ class BQWriter:
 
     Parameters
     ----------
-    run_id:
-        Experiment batch UUID.
+    experiment_id:
+        Phoenix experiment ID. Used as the primary identifier for the lapped
+        run in BigQuery.
     gate_threshold:
         The ΔM threshold used by YentlGuardRunner in this run.
     client:
         Optional pre-configured BigQuery client.
-    phoenix_experiment_registry:
-        Optional PhoenixExperimentRegistry. When supplied, register_experiment()
-        also creates a Phoenix experiment linked to the BQ run_id.
     """
 
     def __init__(
         self,
-        run_id: str,
+        experiment_id: str,
         gate_threshold: float = 1.0,
         client: bigquery.Client | None = None,
-        phoenix_experiment_registry=None,
     ):
-        self.run_id = run_id
+        self.experiment_id = experiment_id
         self.gate_threshold = gate_threshold
         self._client = client or bigquery.Client(project=GCP_PROJECT_ID)
-        self._phoenix_registry = phoenix_experiment_registry
         self._buffer: list[dict] = []
         self._buffer_size = 100  # reduced from 500 for research use
         self.dlq_count = 0
-        self.dlq_path = pathlib.Path(f"yentlguard_dlq_{self.run_id}.jsonl")
+        self.dlq_path = pathlib.Path(f"yentlguard_dlq_{self.experiment_id}.jsonl")
 
     def write(
         self,
@@ -287,7 +284,7 @@ class BQWriter:
     ) -> None:
         rows = run_to_rows(
             run=run,
-            run_id=self.run_id,
+            experiment_id=self.experiment_id,
             esi_ground_truth=esi_ground_truth,
             clinical_category=clinical_category,
             gate_threshold=self.gate_threshold,
@@ -325,8 +322,8 @@ class BQWriter:
             )
         else:
             logger.info(
-                "BQWriter: flushed %d rows (run_id=%s)",
-                len(self._buffer), self.run_id,
+                "BQWriter: flushed %d rows (experiment_id=%s)",
+                len(self._buffer), self.experiment_id,
             )
         self._buffer.clear()
 
@@ -340,21 +337,12 @@ class BQWriter:
         notes: str | None = None,
         yentlbench_version: str | None = None,
         yentlguard_version: str | None = None,
-        phoenix_dataset_id: str | None = None,
     ) -> None:
         """
-        Write one row to the BQ experiments table and optionally register
-        a Phoenix experiment.
-
-        Parameters
-        ----------
-        phoenix_dataset_id:
-            If the vignette corpus was uploaded to Phoenix via
-            PhoenixDatasetManager.push_vignette_corpus(), pass the returned
-            dataset ID here to link the Phoenix experiment to its input data.
+        Write one row to the BQ experiments table.
         """
         row = {
-            "run_id": self.run_id,
+            "experiment_id": self.experiment_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "label": label,
             "models": models,
@@ -378,21 +366,8 @@ class BQWriter:
                 )
         else:
             logger.info(
-                "Experiment registered: run_id=%s label='%s'",
-                self.run_id, label,
-            )
-
-        # Phoenix experiment registration — non-fatal if unavailable
-        if self._phoenix_registry is not None:
-            self._phoenix_registry.register(
-                run_id=self.run_id,
-                label=label,
-                dataset_id=phoenix_dataset_id,
-                model_version=models[0] if models else "unknown",
-                thinking_budget=thinking_budgets[0] if thinking_budgets else None,
-                variants=variants,
-                vignette_count=vignette_count,
-                notes=notes,
+                "Experiment registered: experiment_id=%s label='%s'",
+                self.experiment_id, label,
             )
 
     def __enter__(self) -> "BQWriter":

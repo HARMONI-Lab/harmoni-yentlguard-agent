@@ -10,7 +10,7 @@ TOOL INVENTORY
 
 BigQuery tools — all metric aggregation:
   list_experiments        List recent experiment batches from BQ.
-                          Use when no run_id or dataset_id is supplied.
+                          Use when no experiment_id or dataset_id is supplied.
   get_pss_summary         PSS by model × budget × category. H1 and H3.
   get_gate_fire_rate      Gate fire rate breakdown. Anomaly detection.
   get_sycophancy_verdict  CRR vs. distractor gap per vignette. H5.
@@ -121,26 +121,26 @@ Experiments:
   list-experiments-for-dataset
                           List all experiments for a specific dataset.
                           Requires a dataset_id — call list-datasets first
-                          if you only have a run_id or label.
+                          if you only have a experiment_id or label.
   get-experiment-by-id    Full experiment record including metadata,
                           outputs, and Phoenix-stored annotations. Use to
                           narrate experiment findings or cross-reference
-                          with BQ metric rows by bq_run_id in metadata.
+                          with BQ metric rows by experiment_id in metadata.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DECISION RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1.  No run_id or dataset_id supplied:
+1.  No experiment_id or dataset_id supplied:
       → Call BQ list_experiments first. If the user mentions a dataset
         name or label, also call list-datasets to find the dataset_id,
         then use list-experiments-for-dataset for the Phoenix-native view.
 
-2.  run_id known, dataset_id unknown:
-      → Query BQ with the run_id (get_pss_summary, get_sycophancy_verdict,
-        etc.). To get the Phoenix experiment record, call query_bigquery to
-        find the phoenix_dataset_id stored in the experiments table, then
-        call list-experiments-for-dataset with that dataset_id.
+2.  experiment_id known, dataset_id unknown:
+      → Query BQ with the experiment_id (get_pss_summary, get_sycophancy_verdict,
+        etc.). To get the Phoenix experiment record, call get-experiment-by-id 
+        using the experiment_id directly. If you need the dataset, the dataset_id 
+        will be available in the experiment metadata.
 
 3.  Before run_experiment:
       a. Call list-prompts + get-latest-prompt (or get-prompt-version-by-tag

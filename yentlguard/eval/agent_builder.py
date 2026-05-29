@@ -60,8 +60,8 @@ SELECT
     e.label AS experiment_label,
     e.notes AS experiment_notes
 FROM `{runs_table}` v
-LEFT JOIN `{expts_table}` e USING (run_id)
-WHERE v.run_id IN UNNEST(@run_ids)
+LEFT JOIN `{expts_table}` e USING (experiment_id)
+WHERE v.experiment_id IN UNNEST(@experiment_ids)
   AND v.pass_number = @pass_number
 ORDER BY v.vignette_id, v.model_version, v.thinking_budget, v.demographic_variant
 """.strip()
@@ -88,7 +88,7 @@ SELECT
     COUNTIF(recovery_class = 'partial') AS n_partial_recovery,
     COUNTIF(recovery_class = 'failed') AS n_failed_recovery
 FROM `{runs_table}`
-WHERE run_id IN UNNEST(@run_ids)
+WHERE experiment_id IN UNNEST(@experiment_ids)
   AND pass_number = 1
   AND demographic_variant != 'nb_ambiguous'
 GROUP BY 1, 2, 3, 4, 5
@@ -106,7 +106,7 @@ SELECT
     AVG(tar) AS mean_tar,
     COUNT(*) AS n
 FROM `{runs_table}`
-WHERE run_id IN UNNEST(@run_ids)
+WHERE experiment_id IN UNNEST(@experiment_ids)
   AND pass_number = 1
    AND demographic_variant IN ('male', 'female', 'nb_label_only', 'nb_explicit')
 GROUP BY 1, 2, 3
@@ -120,7 +120,7 @@ ORDER BY model_version, thinking_budget, demographic_variant
 class EvalTask:
     """Describes one Agent Builder evaluation task."""
     task_id: str
-    run_ids: list[str]
+    experiment_ids: list[str]
     model_versions: list[str]
     pass_number: int
     label: str
@@ -155,11 +155,11 @@ class AgentBuilderEvalLayer:
 
     def build_eval_dataset(
         self,
-        run_ids: list[str],
+        experiment_ids: list[str],
         pass_number: int = 1,
     ) -> pd.DataFrame:
         """
-        Pull a structured eval dataset from BigQuery for the given run_ids.
+        Pull a structured eval dataset from BigQuery for the given experiment_ids.
 
         Returns a DataFrame suitable for Agent Builder eval job input,
         with one row per vignette × model × variant.
@@ -169,38 +169,38 @@ class AgentBuilderEvalLayer:
             expts_table=EXPTS_TABLE,
         )
         params = [
-            bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids),
+            bigquery.ArrayQueryParameter("experiment_ids", "STRING", experiment_ids),
             bigquery.ScalarQueryParameter("pass_number", "INT64", pass_number),
         ]
         df = self._query(sql, params)
         logger.info(
-            "Eval dataset: %d rows for run_ids=%s pass=%d",
-            len(df), run_ids, pass_number,
+            "Eval dataset: %d rows for experiment_ids=%s pass=%d",
+            len(df), experiment_ids, pass_number,
         )
         return df
 
-    def compute_pss_summary(self, run_ids: list[str]) -> pd.DataFrame:
+    def compute_pss_summary(self, experiment_ids: list[str]) -> pd.DataFrame:
         """
         Compute Perturbation Sensitivity Score summary across model × budget × category.
 
         This is the primary cross-model comparison table for H1 and H3.
         """
         sql = PSS_QUERY.format(runs_table=RUNS_TABLE)
-        params = [bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids)]
+        params = [bigquery.ArrayQueryParameter("experiment_ids", "STRING", experiment_ids)]
         return self._query(sql, params)
 
-    def compute_thinking_budget_effect(self, run_ids: list[str]) -> pd.DataFrame:
+    def compute_thinking_budget_effect(self, experiment_ids: list[str]) -> pd.DataFrame:
         """
         H1: Reasoning Mitigation Effect.
         Returns mean PSS by model × thinking_budget × variant.
         """
         sql = THINKING_BUDGET_QUERY.format(runs_table=RUNS_TABLE)
-        params = [bigquery.ArrayQueryParameter("run_ids", "STRING", run_ids)]
+        params = [bigquery.ArrayQueryParameter("experiment_ids", "STRING", experiment_ids)]
         return self._query(sql, params)
 
     def register_eval_task(
         self,
-        run_ids: list[str],
+        experiment_ids: list[str],
         label: str,
         model_versions: list[str],
         pass_number: int = 1,
@@ -224,7 +224,7 @@ class AgentBuilderEvalLayer:
 
         vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
 
-        df = self.build_eval_dataset(run_ids=run_ids, pass_number=pass_number)
+        df = self.build_eval_dataset(experiment_ids=experiment_ids, pass_number=pass_number)
 
         # Format for Agent Builder eval: requires 'response' and 'reference' columns
         eval_df = pd.DataFrame({
@@ -267,7 +267,7 @@ class AgentBuilderEvalLayer:
 
         return EvalTask(
             task_id=task_id,
-            run_ids=run_ids,
+            experiment_ids=experiment_ids,
             model_versions=model_versions,
             pass_number=pass_number,
             label=label,
@@ -276,7 +276,7 @@ class AgentBuilderEvalLayer:
 
     def compare_model_generations(
         self,
-        run_ids_by_model: dict[str, str],
+        experiment_ids_by_model: dict[str, str],
         variant: str = "female",
         clinical_category: str | None = None,
     ) -> pd.DataFrame:
@@ -285,12 +285,12 @@ class AgentBuilderEvalLayer:
 
         Parameters
         ----------
-        run_ids_by_model:
-            Mapping of model_version → run_id, e.g.:
+        experiment_ids_by_model:
+            Mapping of model_version → experiment_id, e.g.:
             {
-                "gemini-2.5-pro": "uuid-for-2.5-run",
-                "gemini-3.1-pro": "uuid-for-3.1-run",
-                "gemini-3.5-pro": "uuid-for-3.5-run",   # when it drops
+                "gemini-2.5-pro": "id-for-2.5-run",
+                "gemini-3.1-pro": "id-for-3.1-run",
+                "gemini-3.5-pro": "id-for-3.5-run",   # when it drops
             }
         variant:
             Demographic variant to compare across models.
@@ -302,8 +302,8 @@ class AgentBuilderEvalLayer:
         DataFrame with one row per vignette_id, columns per model_version
         showing delta_m, tar, crr, and esi_correct.
         """
-        all_run_ids = list(run_ids_by_model.values())
-        df = self.build_eval_dataset(run_ids=all_run_ids, pass_number=1)
+        all_experiment_ids = list(experiment_ids_by_model.values())
+        df = self.build_eval_dataset(experiment_ids=all_experiment_ids, pass_number=1)
 
         df = df[df["demographic_variant"] == variant]
         if clinical_category:
@@ -322,7 +322,7 @@ class AgentBuilderEvalLayer:
             "Cross-model comparison: variant=%s category=%s models=%s vignettes=%d",
             variant,
             clinical_category or "all",
-            list(run_ids_by_model.keys()),
+            list(experiment_ids_by_model.keys()),
             len(pivot),
         )
         return pivot

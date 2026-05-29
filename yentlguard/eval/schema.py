@@ -23,8 +23,8 @@ from yentlguard.config import (
 
 RUNS_SCHEMA = [
     # ── Experiment keys ────────────────────────────────────────────────────
-    bigquery.SchemaField("run_id", "STRING", mode="REQUIRED",
-        description="UUID identifying the experiment batch."),
+    bigquery.SchemaField("experiment_id", "STRING", mode="REQUIRED",
+        description="Phoenix experiment ID. Primary grouping key."),
     bigquery.SchemaField("row_id", "STRING", mode="REQUIRED",
         description="UUID for this row. Primary key."),
     bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED",
@@ -181,8 +181,8 @@ RUNS_SCHEMA = [
 
 
 EXPERIMENTS_SCHEMA = [
-    bigquery.SchemaField("run_id", "STRING", mode="REQUIRED",
-        description="UUID. Foreign key to runs.run_id."),
+    bigquery.SchemaField("experiment_id", "STRING", mode="REQUIRED",
+        description="Phoenix experiment ID. Foreign key to runs.experiment_id."),
     bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED",
         description="UTC timestamp when the experiment was registered."),
     bigquery.SchemaField("label", "STRING", mode="REQUIRED",
@@ -230,19 +230,19 @@ def create_dataset_and_tables(client: bigquery.Client | None = None) -> None:
         field="created_at",
     )
     runs_table.clustering_fields = [
-        "model_version", "demographic_variant", "run_id"
+        "model_version", "demographic_variant", "experiment_id"
     ]
     runs_table.description = (
         "One row per vignette × variant × pass execution. "
         "Partitioned by created_at (day). "
-        "Clustered by model_version, demographic_variant, run_id."
+        "Clustered by model_version, demographic_variant, experiment_id."
     )
     client.create_table(runs_table, exists_ok=True)
     print(f"Table ready: {RUNS_TABLE}")
 
     expts_table = bigquery.Table(EXPTS_TABLE, schema=EXPERIMENTS_SCHEMA)
     expts_table.description = (
-        "One row per experiment batch. JOIN to runs on run_id."
+        "One row per experiment batch. JOIN to runs on experiment_id."
     )
     client.create_table(expts_table, exists_ok=True)
     print(f"Table ready: {EXPTS_TABLE}")

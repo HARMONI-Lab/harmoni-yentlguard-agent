@@ -3,7 +3,7 @@ YentlGuard CSV export.
 
 Writes all AnalysisResult tables to a timestamped output directory.
 One CSV per analysis table, plus a manifest file listing what was written
-and the run_ids included.
+and the experiment_ids included.
 """
 
 import json
@@ -73,7 +73,7 @@ def export_csvs(
     # Write manifest
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "run_ids": result.run_ids,
+        "experiment_ids": result.experiment_ids,
         "run_labels": result.run_labels,
         "files": {k: str(v.name) for k, v in written.items()},
         "errors": result.errors,

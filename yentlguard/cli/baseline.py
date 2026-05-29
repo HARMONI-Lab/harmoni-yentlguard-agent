@@ -4,10 +4,9 @@ from ._common import _build_phoenix_components, _get_completed_vignettes
 
 logger = logging.getLogger("yentlguard.cli")
 
-def cmd_baseline(args: argparse.Namespace) -> None:
+def cmd_baseline(args: argparse.Namespace) -> str:
     """Populate Phoenix with nb_ambiguous baseline spans."""
     import pathlib as _pathlib
-    import uuid as _uuid
 
     import pandas as _pd
     from yentlbench.local_runner.prompt import build_prompt as _build_prompt
@@ -67,13 +66,22 @@ def cmd_baseline(args: argparse.Namespace) -> None:
         prompt_manager=prompt_mgr,
     )
 
-    run_id = str(_uuid.uuid4())
-    logger.info("Baseline BQ run_id: %s", run_id)
+    # Register the experiment in Phoenix FIRST to obtain the official experiment_id.
+    # Phoenix is now a hard dependency.
+    experiment_id = expt_registry.register(
+        label=f"baseline {args.model} {args.budget}",
+        dataset_id=phoenix_dataset_id,
+        model_version=args.model,
+        thinking_budget=args.budget,
+        variants=["nb_ambiguous"],
+        vignette_count=len(df_variant),
+        notes="Baseline pass for nb_ambiguous",
+    )
+    logger.info("Baseline registered in Phoenix. experiment_id: %s", experiment_id)
 
     with BQWriter(
-        run_id=run_id,
+        experiment_id=experiment_id,
         gate_threshold=1.0,
-        phoenix_experiment_registry=expt_registry,
     ) as bq:
         bq.register_experiment(
             label=f"baseline {args.model} {args.budget}",
@@ -82,7 +90,6 @@ def cmd_baseline(args: argparse.Namespace) -> None:
             variants=["nb_ambiguous"],
             vignette_count=len(df_variant),
             notes="Baseline pass for nb_ambiguous",
-            phoenix_dataset_id=phoenix_dataset_id,
         )
 
         completed = _get_completed_vignettes(
@@ -99,13 +106,13 @@ def cmd_baseline(args: argparse.Namespace) -> None:
             if vignette_id in completed:
                 continue
             text = _build_prompt(vignette, "nb_ambiguous")
-            # Pass run_id so yentlguard.run_id is written on every span —
-            # required for annotate_spans_with_verdicts to locate spans by run_id.
+            # Pass experiment_id so yentlguard.experiment_id is written on every span —
+            # required for annotate_spans_with_verdicts to locate spans by experiment_id.
             run = runner.run(
                 vignette_id=vignette_id,
                 vignette_text=text,
                 demographic_variant="nb_ambiguous",
-                run_id=run_id,
+                experiment_id=experiment_id,
             )
 
             esi_gt = (
@@ -127,6 +134,8 @@ def cmd_baseline(args: argparse.Namespace) -> None:
                 status, vignette_id, run.pass1_esi or "?", dm or 0.0,
             )
 
-    logger.info("Baseline complete. run_id=%s", run_id)
+    logger.info("Baseline complete. experiment_id=%s", experiment_id)
     if provider:
         provider.shutdown()
+        
+    return experiment_id

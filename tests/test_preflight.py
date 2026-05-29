@@ -438,7 +438,7 @@ class TestBigQueryConnectivity(unittest.TestCase):
     def test_bq_streaming_insert_accepts_row(self):
         """
         A minimal test row must insert without errors.
-        Uses a clearly-marked preflight run_id so it can be filtered out.
+        Uses a clearly-marked preflight experiment_id so it can be filtered out.
         """
         try:
             import datetime
@@ -449,7 +449,7 @@ class TestBigQueryConnectivity(unittest.TestCase):
 
             client = bigquery.Client(project=self.project)
             test_row = {
-                "run_id": f"preflight-{uuid.uuid4()}",
+                "experiment_id": f"preflight-{uuid.uuid4()}",
                 "row_id": str(uuid.uuid4()),
                 "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "vignette_id": "PREFLIGHT_TEST",

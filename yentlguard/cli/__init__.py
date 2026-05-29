@@ -83,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
             "PHOENIX_MCP_ENDPOINT", _DEFAULT_PHOENIX_MCP_ENDPOINT
         ),
     )
-    p_run.add_argument("--run-id", default=None)
+    p_run.add_argument("--experiment-id", default=None)
     p_run.add_argument("--label", default=None)
     p_run.add_argument("--notes", default=None)
     p_run.set_defaults(func=cmd_run)
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
         "analyze",
         help="Pull BigQuery run data, compute summaries, write HTML + CSVs.",
     )
-    p_analyze.add_argument("--run-ids", nargs="+", required=True)
+    p_analyze.add_argument("--experiment-ids", nargs="+", required=True)
     p_analyze.add_argument("--output", default="results/")
     p_analyze.add_argument("--register-eval", action="store_true", default=False)
     p_analyze.add_argument("--label", default=None)
@@ -102,7 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # report (alias)
     p_report = sub.add_parser("report", help="Alias for analyze.")
-    p_report.add_argument("--run-ids", nargs="+", required=True)
+    p_report.add_argument("--experiment-ids", nargs="+", required=True)
     p_report.add_argument("--output", default="results/")
     p_report.add_argument("--register-eval", action="store_true", default=False)
     p_report.add_argument("--label", default=None)

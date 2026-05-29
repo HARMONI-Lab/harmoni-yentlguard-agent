@@ -94,7 +94,7 @@ def _overview_cards(result: AnalysisResult) -> str:
 
     cards = ""
     for _, row in df.iterrows():
-        label = row.get("label") or row.get("run_id", "")[:8]
+        label = row.get("label") or row.get("experiment_id", "")[:8]
         model  = row.get("model_version", "")
         budget = row.get("thinking_budget", "—")
         acc    = row.get("accuracy")
@@ -430,23 +430,23 @@ footer a {{ color: var(--teal); text-decoration: none; }}
 def generate_html_report(
     result: AnalysisResult,
     output_path: Path,
-    run_ids: list[str],
+    experiment_ids: list[str],
 ) -> Path:
     """
-    Render a self-contained HTML analysis report from an AnalysisResult.
+    Generate the YentlGuard Analysis Report.
 
     Parameters
     ----------
     result:
-        Computed AnalysisResult from Analyzer.run().
+        Computed AnalysisResult object containing all tables.
     output_path:
         Directory to write the report into.
-    run_ids:
-        Run IDs included in this analysis (for display).
+    experiment_ids:
+        List of experiment IDs included in this analysis.
 
     Returns
     -------
-    Path to the written HTML file.
+    Path to the generated HTML file.
     """
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -470,15 +470,14 @@ def generate_html_report(
 </div>"""
 
     # ── Run ID list ────────────────────────────────────────────────────────
-    run_id_html = '<div class="run-ids">'
-    for rid in run_ids:
-        label = result.run_labels.get(rid, "unlabeled")
-        run_id_html += f"""
-<div class="run-id-row">
-  <span class="run-id-badge">{rid}</span>
-  <span class="run-id-label">{label}</span>
-</div>"""
-    run_id_html += "</div>"
+    experiment_id_html = '<div class="run-ids">'
+    for rid in experiment_ids:
+        # Check if we have a label for this experiment_id
+        label = result.run_labels.get(rid, rid[:8])
+        experiment_id_html += f"""
+          <span class="run-id-pill" title="{rid}">{label}</span>
+        """
+    experiment_id_html += "</div>"
 
     # ── Sections ───────────────────────────────────────────────────────────
     sections = []
@@ -486,7 +485,7 @@ def generate_html_report(
     sections.append(_section(
         "Overview",
         "Aggregate accuracy, ΔM, TAR, and CRR per model and experiment batch.",
-        run_id_html + summary_cards + _overview_cards(result) + _df_to_html(result.overview),
+        experiment_id_html + summary_cards + _overview_cards(result) + _df_to_html(result.overview),
         "overview",
     ))
 
@@ -612,7 +611,7 @@ def generate_html_report(
     </div>
     <div class="meta-item">
       <span class="meta-label">Run IDs</span>
-      <span class="meta-value">{len(run_ids)} experiment batch(es)</span>
+      <span class="meta-value">{len(experiment_ids)} experiment batch(es)</span>
     </div>
   </div>
 </header>

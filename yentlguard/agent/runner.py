@@ -33,11 +33,11 @@ Prompt versioning:
     in the Phoenix UI and queryable via the list-prompt-versions MCP tool.
     Falls back to hardcoded defaults when Phoenix is unavailable.
 
-Span run_id tagging:
-    When run_id is supplied to run(), it is written as yentlguard.run_id
+Span experiment_id tagging:
+    When experiment_id is supplied to run(), it is written as yentlguard.experiment_id
     on every enriched generation span. This is required for
     annotate_spans_with_verdicts in phoenix_tools.py to locate pass_number=2
-    spans by run_id without relying on Phoenix MCP custom attribute filtering.
+    spans by experiment_id without relying on Phoenix MCP custom attribute filtering.
 """
 
 import asyncio
@@ -70,8 +70,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "yentl-bench")
-GCP_LOCATION = os.environ.get("GCP_LOCATION", "us-central1")
+# Remove redundant override
+# GCP_PROJECT_ID and GCP_LOCATION are imported from yentlguard.config
 
 DEMOGRAPHIC_TRIGGER_TOKENS = {
     "female", "woman", "girl", "lady", "she", "her",
@@ -292,7 +292,7 @@ class YentlGuardRunner:
         vignette_id: str,
         vignette_text: str,
         demographic_variant: str,
-        run_id: str | None = None,
+        experiment_id: str | None = None,
     ) -> VignetteRun:
         """
         Execute a full mechanistic run for one vignette × variant.
@@ -306,11 +306,10 @@ class YentlGuardRunner:
         demographic_variant:
             YentlBench variant label ("male", "female", "nb_ambiguous",
             "nb_label_only", "nb_explicit").
-        run_id:
-            Optional experiment batch UUID. When supplied, written to all
-            enriched generation spans as yentlguard.run_id so that
-            annotate_spans_with_verdicts can locate pass_number=2 spans
-            by run_id without relying on Phoenix MCP custom attribute filtering.
+        experiment_id:
+            Phoenix experiment ID. Written to all enriched generation spans
+            as yentlguard.experiment_id so that annotate_spans_with_verdicts can
+            locate pass_number=2 spans by experiment_id.
         """
         run = VignetteRun(
             vignette_id=vignette_id,
@@ -326,7 +325,7 @@ class YentlGuardRunner:
             demographic_variant=demographic_variant,
             model_version=self.model_version,
             thinking_budget=self.thinking_budget,
-            run_id=run_id,
+            experiment_id=experiment_id,
         ):
             # ── Pass 1 ────────────────────────────────────────────────────────
             logger.info(
@@ -358,7 +357,7 @@ class YentlGuardRunner:
                     delta_m_result=run.pass1_delta_m,
                     tar_result=run.pass1_tar,
                     raw_text=run.raw_text_pass1,
-                    run_id=run_id,
+                    experiment_id=experiment_id,
                 )
 
             except Exception as e:
@@ -486,7 +485,7 @@ class YentlGuardRunner:
                     vignette_id=vignette_id,
                     demographic_variant=demographic_variant,
                     run=run,
-                    run_id=run_id,
+                    experiment_id=experiment_id,
                 )
             )
 
@@ -538,7 +537,7 @@ class YentlGuardRunner:
         vignette_id: str,
         demographic_variant: str,
         run: "VignetteRun",
-        run_id: str | None = None,
+        experiment_id: str | None = None,
     ) -> dict[str, dict]:
         """
         Execute all four post-gate branches concurrently via asyncio.gather().
@@ -603,7 +602,7 @@ class YentlGuardRunner:
                     pass_number=pass_num,
                     delta_m_result=dm_result,
                     raw_text=raw_text,
-                    run_id=run_id,
+                    experiment_id=experiment_id,
                 )
                 with pass_metrics_span(pass_number=pass_num, delta_m_result=dm_result):
                     pass
@@ -632,3 +631,4 @@ class YentlGuardRunner:
         tasks = [_call_branch(label, prompt) for label, prompt in branches.items()]
         results = await asyncio.gather(*tasks)
         return dict(results)
+
