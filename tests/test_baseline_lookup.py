@@ -24,11 +24,13 @@ class TestMCPImports(unittest.TestCase):
     def test_sse_client_import(self):
         """sse_client must be importable from mcp.client.sse."""
         from mcp.client.sse import sse_client
+
         self.assertTrue(callable(sse_client))
 
     def test_client_session_import(self):
         """ClientSession must be importable from mcp.client.session."""
         from mcp.client.session import ClientSession
+
         self.assertTrue(callable(ClientSession))
 
     def test_phoenix_client_uses_correct_imports(self):
@@ -37,9 +39,8 @@ class TestMCPImports(unittest.TestCase):
         not the incorrect mcp.ClientSession(url) pattern.
         """
         import pathlib
-        source = pathlib.Path(
-            __file__
-        ).parent.parent / "yentlguard" / "mcp" / "baseline_lookup.py"
+
+        source = pathlib.Path(__file__).parent.parent / "yentlguard" / "mcp" / "baseline_lookup.py"
         content = source.read_text()
 
         self.assertIn(
@@ -72,6 +73,7 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
 
     def _make_client(self):
         from yentlguard.mcp.baseline_lookup import MCPBackend
+
         return MCPBackend(
             mcp_endpoint="http://localhost:6006/mcp/sse",
             project_name="yentlguard",
@@ -84,8 +86,12 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
         """
 
         # Build a fake CallToolResult with two TextContent blocks
-        span_data_1 = {"attributes": {"yentlguard.delta_m": 2.34, "yentlguard.vignette_id": "ED_001"}}
-        span_data_2 = {"attributes": {"yentlguard.delta_m": 1.87, "yentlguard.vignette_id": "ED_001"}}
+        span_data_1 = {
+            "attributes": {"yentlguard.delta_m": 2.34, "yentlguard.vignette_id": "ED_001"}
+        }
+        span_data_2 = {
+            "attributes": {"yentlguard.delta_m": 1.87, "yentlguard.vignette_id": "ED_001"}
+        }
 
         fake_block_1 = MagicMock()
         fake_block_1.text = json.dumps(span_data_1)
@@ -106,9 +112,10 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
         mock_sse_ctx.__aenter__ = AsyncMock(return_value=mock_streams)
         mock_sse_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("yentlguard.mcp.baseline_lookup.sse_client", return_value=mock_sse_ctx), \
-             patch("yentlguard.mcp.baseline_lookup.ClientSession", return_value=mock_session):
-
+        with (
+            patch("yentlguard.mcp.baseline_lookup.sse_client", return_value=mock_sse_ctx),
+            patch("yentlguard.mcp.baseline_lookup.ClientSession", return_value=mock_session),
+        ):
             client = self._make_client()
             result = await client._call_tool("get_spans", {"project_name": "yentlguard"})
 
@@ -139,9 +146,10 @@ class TestPhoenixClientCallTool(unittest.IsolatedAsyncioTestCase):
         mock_sse_ctx.__aenter__ = AsyncMock(return_value=mock_streams)
         mock_sse_ctx.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("yentlguard.mcp.baseline_lookup.sse_client", return_value=mock_sse_ctx), \
-             patch("yentlguard.mcp.baseline_lookup.ClientSession", return_value=mock_session):
-
+        with (
+            patch("yentlguard.mcp.baseline_lookup.sse_client", return_value=mock_sse_ctx),
+            patch("yentlguard.mcp.baseline_lookup.ClientSession", return_value=mock_session),
+        ):
             client = self._make_client()
             result = await client._call_tool("get_spans", {})
 
@@ -155,15 +163,18 @@ class TestPhoenixClientSynchronous(unittest.TestCase):
 
     def _make_client(self):
         from yentlguard.mcp.baseline_lookup import MCPBackend
+
         return MCPBackend(mcp_endpoint="http://localhost:6006/mcp/sse", project_name="yentlguard")
 
     def _make_spans(self, delta_m_values: list[float]) -> list[dict]:
         return [
-            {"attributes": {
-                "yentlguard.vignette_id": "ED_TEST_001",
-                "yentlguard.demographic_variant": "nb_ambiguous",
-                "yentlguard.delta_m": v,
-            }}
+            {
+                "attributes": {
+                    "yentlguard.vignette_id": "ED_TEST_001",
+                    "yentlguard.demographic_variant": "nb_ambiguous",
+                    "yentlguard.delta_m": v,
+                }
+            }
             for v in delta_m_values
         ]
 
@@ -214,13 +225,11 @@ class TestPhoenixClientSynchronous(unittest.TestCase):
         # This tests the public contract: a hung MCP server raises RuntimeError
         # with an actionable message, not asyncio.TimeoutError.
         def _raise_timeout(*a, **kw):
-            raise RuntimeError(
-                "MCPBackend timed out after 15.0s. "
-                "Check Phoenix MCP server health."
-            )
+            raise RuntimeError("MCPBackend timed out after 15.0s. Check Phoenix MCP server health.")
 
         import warnings
-        with patch.object(client, "_run", side_effect=_raise_timeout),              warnings.catch_warnings():
+
+        with patch.object(client, "_run", side_effect=_raise_timeout), warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             with self.assertRaises(RuntimeError) as ctx:
                 client.get_baseline_delta_m("ED_001", "nb_ambiguous")
@@ -234,9 +243,9 @@ class TestPhoenixClientSynchronous(unittest.TestCase):
         Skipping initialize() causes Phoenix MCP to reject the connection.
         """
         import pathlib
+
         source = (
-            pathlib.Path(__file__).parent.parent
-            / "yentlguard" / "mcp" / "baseline_lookup.py"
+            pathlib.Path(__file__).parent.parent / "yentlguard" / "mcp" / "baseline_lookup.py"
         ).read_text()
         self.assertIn(
             "await session.initialize()",

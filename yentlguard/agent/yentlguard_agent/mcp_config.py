@@ -77,44 +77,37 @@ PHOENIX_MCP_TOOL_FILTER: list[str] = [
     # ── Projects ──────────────────────────────────────────────────────────
     "list-projects",
     "get-project",
-
     # ── Traces ────────────────────────────────────────────────────────────
     "list-traces",
     "get-trace",
-
     # ── Spans & Annotations ───────────────────────────────────────────────
-    "get-spans",               # was "list-spans" — renamed in v4.x
-    "get-span-annotations",    # was "get-span"   — now returns annotations for a span
-
+    "get-spans",  # was "list-spans" — renamed in v4.x
+    "get-span-annotations",  # was "get-span"   — now returns annotations for a span
     # ── Annotation Configs ────────────────────────────────────────────────
-    "list-annotation-configs", # NEW — inspect scoring rubrics before annotating
-
+    "list-annotation-configs",  # NEW — inspect scoring rubrics before annotating
     # ── Sessions ──────────────────────────────────────────────────────────
-    "list-sessions",           # NEW — included for completeness / future use
-    "get-session",             # NEW
-
+    "list-sessions",  # NEW — included for completeness / future use
+    "get-session",  # NEW
     # ── Prompts (full versioning surface) ────────────────────────────────
     "list-prompts",
     "get-prompt",
-    "get-latest-prompt",       # NEW — explicit latest-version fetch
-    "get-prompt-by-identifier",# NEW — fetch by name or ID
-    "get-prompt-version",      # NEW — fetch a specific version by ID
-    "list-prompt-versions",    # was missing from prior filter
-    "get-prompt-version-by-tag",# NEW — fetch by tag
-    "list-prompt-version-tags",# NEW — see all tags on a prompt
+    "get-latest-prompt",  # NEW — explicit latest-version fetch
+    "get-prompt-by-identifier",  # NEW — fetch by name or ID
+    "get-prompt-version",  # NEW — fetch a specific version by ID
+    "list-prompt-versions",  # was missing from prior filter
+    "get-prompt-version-by-tag",  # NEW — fetch by tag
+    "list-prompt-version-tags",  # NEW — see all tags on a prompt
     "add-prompt-version-tag",  # NEW — promote a version (e.g. to "production")
-    "upsert-prompt",           # write: create or update prompt version
-
+    "upsert-prompt",  # write: create or update prompt version
     # ── Datasets ──────────────────────────────────────────────────────────
     "list-datasets",
     "get-dataset",
-    "get-dataset-examples",    # NEW — inspect actual vignette rows
-    "get-dataset-experiments", # NEW — cross-reference dataset → experiment history
-    "add-dataset-examples",    # write: extend a dataset with new rows
-
+    "get-dataset-examples",  # NEW — inspect actual vignette rows
+    "get-dataset-experiments",  # NEW — cross-reference dataset → experiment history
+    "add-dataset-examples",  # write: extend a dataset with new rows
     # ── Experiments ───────────────────────────────────────────────────────
-    "list-experiments-for-dataset", # was "list-experiments" — correct v4.x name
-    "get-experiment-by-id",    # was "get-experiment" — correct v4.x name
+    "list-experiments-for-dataset",  # was "list-experiments" — correct v4.x name
+    "get-experiment-by-id",  # was "get-experiment" — correct v4.x name
 ]
 
 
@@ -135,9 +128,7 @@ def build_phoenix_mcp_toolset():
     # Derive base URL — strip /v1/traces if collector endpoint was supplied
     raw = os.environ.get(
         "PHOENIX_BASE_URL",
-        os.environ.get(
-            "PHOENIX_COLLECTOR_ENDPOINT", "https://app.phoenix.arize.com"
-        ),
+        os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "https://app.phoenix.arize.com"),
     )
     base_url = raw.split("/v1/")[0].rstrip("/")
 
@@ -148,9 +139,7 @@ def build_phoenix_mcp_toolset():
         )
         from mcp import StdioServerParameters
     except ImportError as e:
-        logger.warning(
-            "google-adk not installed — Phoenix MCP toolset disabled: %s", e
-        )
+        logger.warning("google-adk not installed — Phoenix MCP toolset disabled: %s", e)
         return None
 
     logger.info(
@@ -166,8 +155,10 @@ def build_phoenix_mcp_toolset():
                 args=[
                     "-y",
                     "@arizeai/phoenix-mcp@latest",
-                    "--baseUrl", base_url,
-                    "--apiKey", api_key,
+                    "--baseUrl",
+                    base_url,
+                    "--apiKey",
+                    api_key,
                 ],
             )
         ),

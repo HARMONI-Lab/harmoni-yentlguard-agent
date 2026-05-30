@@ -234,15 +234,11 @@ def get_gate_fire_rate(
 
     if model_version:
         filters.append("model_version = @model_version")
-        params.append(
-            bigquery.ScalarQueryParameter("model_version", "STRING", model_version)
-        )
+        params.append(bigquery.ScalarQueryParameter("model_version", "STRING", model_version))
     if clinical_category:
         filters.append("clinical_category = @clinical_category")
         params.append(
-            bigquery.ScalarQueryParameter(
-                "clinical_category", "STRING", clinical_category
-            )
+            bigquery.ScalarQueryParameter("clinical_category", "STRING", clinical_category)
         )
 
     sql = f"""

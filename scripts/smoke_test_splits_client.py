@@ -13,6 +13,7 @@ Usage:
     python -m scripts.smoke_test_splits_client --live --limit 2   # 2 real runs
     python -m scripts.smoke_test_splits_client --split female       # other split
 """
+
 import argparse
 import sys
 
@@ -22,10 +23,12 @@ DATASET_NAME = "yentlbench-quintets-all-variants"
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", default="nb_ambiguous")
-    ap.add_argument("--limit", type=int, default=2,
-                    help="Max examples to actually run in --live mode.")
-    ap.add_argument("--live", action="store_true",
-                    help="Invoke the real YentlGuardRunner (costs model calls).")
+    ap.add_argument(
+        "--limit", type=int, default=2, help="Max examples to actually run in --live mode."
+    )
+    ap.add_argument(
+        "--live", action="store_true", help="Invoke the real YentlGuardRunner (costs model calls)."
+    )
     ap.add_argument("--model", default="gemini-2.5-flash")
     ap.add_argument("--budget", default="low")
     ap.add_argument("--threshold", type=float, default=1.0)
@@ -65,6 +68,7 @@ def main() -> int:
     if args.live:
         from yentlguard.agent.runner import YentlGuardRunner
         from yentlguard.cli._common import _build_phoenix_components
+
         prompt_mgr, dataset_mgr, _ = _build_phoenix_components()
         runner = YentlGuardRunner(
             model_version=args.model,
@@ -74,10 +78,7 @@ def main() -> int:
             prompt_manager=prompt_mgr,
         )
         df_all = dataset_mgr.get_vignettes_df()
-        row_by_id = {
-            str(int(r["source_stay_id"])): r.to_dict()
-            for _, r in df_all.iterrows()
-        }
+        row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
 
     ran = {"n": 0}
 
@@ -90,6 +91,7 @@ def main() -> int:
             return {"smoke": "stub", "variant": args.split}
         ran["n"] += 1
         from yentlbench.local_runner.prompt import build_prompt
+
         stay_id = str(int(metadata["source_stay_id"]))
         vignette = row_by_id.get(stay_id)
         text = build_prompt(vignette, args.split) if vignette else input["vignette_text"]

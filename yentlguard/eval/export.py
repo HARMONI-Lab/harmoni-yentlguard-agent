@@ -19,16 +19,16 @@ logger = logging.getLogger(__name__)
 
 # Maps attribute name on AnalysisResult → output filename stem
 EXPORT_TABLES = {
-    "overview":           "overview",
+    "overview": "overview",
     "h1_thinking_budget": "h1_reasoning_mitigation",
-    "h2_tar_friction":    "h2_cognitive_friction",
-    "h3_delta_m":         "h3_boundary_invariance",
-    "h4_crr":             "h4_confidence_recovery",
-    "sycophancy":         "sycophancy_control",
-    "gate_stats":         "gate_statistics",
-    "cross_model":        "cross_model_pivot",
-    "raw_pass1":          "raw_pass1",
-    "raw_pass2":          "raw_pass2",
+    "h2_tar_friction": "h2_cognitive_friction",
+    "h3_delta_m": "h3_boundary_invariance",
+    "h4_crr": "h4_confidence_recovery",
+    "sycophancy": "sycophancy_control",
+    "gate_stats": "gate_statistics",
+    "cross_model": "cross_model_pivot",
+    "raw_pass1": "raw_pass1",
+    "raw_pass2": "raw_pass2",
 }
 
 

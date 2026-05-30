@@ -9,8 +9,10 @@ from yentlguard.eval.report import generate_html_report
 
 logger = logging.getLogger("yentlguard.cli")
 
+
 def cmd_report(args: argparse.Namespace) -> None:
     cmd_analyze(args)
+
 
 def cmd_analyze(args: argparse.Namespace) -> None:
     experiment_ids: list[str] = args.experiment_ids
@@ -36,9 +38,7 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     )
     logger.info("HTML report: %s", html_path)
 
-    csv_files = export_csvs(
-        result=result, output_path=output_path, timestamp=timestamp
-    )
+    csv_files = export_csvs(result=result, output_path=output_path, timestamp=timestamp)
     logger.info("Wrote %d CSV files to %s", len(csv_files), output_path)
 
     if args.register_eval:
@@ -53,9 +53,7 @@ def cmd_analyze(args: argparse.Namespace) -> None:
                 model_versions=models,
                 notes=args.notes,
             )
-            logger.info(
-                "Agent Builder eval task registered: %s", task.task_id
-            )
+            logger.info("Agent Builder eval task registered: %s", task.task_id)
         except Exception as e:
             logger.warning("Agent Builder registration failed (non-fatal): %s", e)
 

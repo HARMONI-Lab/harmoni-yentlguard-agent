@@ -21,12 +21,12 @@ import argparse
 import logging
 import os
 
+from ._common import _DEFAULT_PHOENIX_MCP_ENDPOINT
 from .agent import cmd_agent
 from .analyze import cmd_analyze, cmd_report
 from .baseline import cmd_baseline
-from .run import cmd_run
 from .prompts import cmd_prompts
-from ._common import _DEFAULT_PHOENIX_MCP_ENDPOINT
+from .run import cmd_run
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,30 +34,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger("yentlguard.cli")
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="yentlguard",
         description="Mechanistic interpretability layer for YentlBench triage bias analysis.",
     )
-    parser.add_argument(
-        "--verbose", action="store_true", help="Enable verbose DEBUG logging"
-    )
-    parser.add_argument(
-        "--log-file", type=str, default=None, help="Path to write execution logs"
-    )
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose DEBUG logging")
+    parser.add_argument("--log-file", type=str, default=None, help="Path to write execution logs")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # baseline
-    p_baseline = sub.add_parser(
-        "baseline", help="Populate Phoenix nb_ambiguous baseline spans."
-    )
+    p_baseline = sub.add_parser("baseline", help="Populate Phoenix nb_ambiguous baseline spans.")
     p_baseline.add_argument("--model", default="gemini-2.5-pro")
-    p_baseline.add_argument(
-        "--budget", default="medium", choices=["low", "medium", "high"]
-    )
-    p_baseline.add_argument(
-        "--dataset", default="dataset_output/dataset_quintets.csv"
-    )
+    p_baseline.add_argument("--budget", default="medium", choices=["low", "medium", "high"])
+    p_baseline.add_argument("--dataset", default="dataset_output/dataset_quintets.csv")
     p_baseline.set_defaults(func=cmd_baseline)
 
     # run
@@ -75,15 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=["male", "female", "nb_label_only"],
         choices=["male", "female", "nb_ambiguous", "nb_label_only"],
     )
-    p_run.add_argument(
-        "--dataset", default="dataset_output/dataset_quintets.csv"
-    )
+    p_run.add_argument("--dataset", default="dataset_output/dataset_quintets.csv")
     p_run.add_argument("--threshold", type=float, default=1.0)
     p_run.add_argument(
         "--phoenix-mcp-endpoint",
-        default=os.environ.get(
-            "PHOENIX_MCP_ENDPOINT", _DEFAULT_PHOENIX_MCP_ENDPOINT
-        ),
+        default=os.environ.get("PHOENIX_MCP_ENDPOINT", _DEFAULT_PHOENIX_MCP_ENDPOINT),
     )
     p_run.add_argument("--experiment-id", default=None)
     p_run.add_argument("--label", default=None)
@@ -146,7 +133,7 @@ def main() -> None:
     root_logger.setLevel(log_level)
     for handler in root_logger.handlers:
         handler.setLevel(log_level)
-    
+
     if args.log_file:
         file_handler = logging.FileHandler(args.log_file)
         file_handler.setLevel(log_level)

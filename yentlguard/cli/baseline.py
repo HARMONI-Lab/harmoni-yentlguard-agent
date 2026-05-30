@@ -37,10 +37,7 @@ def cmd_baseline(args: argparse.Namespace) -> str:
         )
         raise SystemExit(1)
 
-    row_by_id = {
-        str(int(r["source_stay_id"])): r.to_dict()
-        for _, r in df_all.iterrows()
-    }
+    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
 
     # Load ONLY the split's examples (no empty runs from other variants).
     split_name = getattr(args, "split", None) or BASELINE_SPLIT
@@ -86,12 +83,10 @@ def cmd_baseline(args: argparse.Namespace) -> str:
             if not _pd.isna(vignette.get("esi_ground_truth")) and vignette.get("esi_ground_truth")
             else None
         )
-        cat = str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", "")) or None
-        dm = (
-            run.pass1_delta_m.delta_m
-            if run.pass1_delta_m and run.pass1_delta_m.delta_m
-            else None
+        cat = (
+            str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", "")) or None
         )
+        dm = run.pass1_delta_m.delta_m if run.pass1_delta_m and run.pass1_delta_m.delta_m else None
         with lock:
             collected.append((run, esi_gt, cat))
         status = "✓" if not run.errors else "✗"
@@ -106,7 +101,6 @@ def cmd_baseline(args: argparse.Namespace) -> str:
         dataset=dataset,
         task=task,
         experiment_name=label,
-        concurrency=getattr(args, "concurrency", 4),
     )
 
     phoenix_id = _extract_experiment_id(experiment)
@@ -125,7 +119,9 @@ def cmd_baseline(args: argparse.Namespace) -> str:
 
     logger.info(
         "Baseline complete. phoenix_id=%s split=%s (%d BQ rows)",
-        phoenix_id, split_name, len(collected),
+        phoenix_id,
+        split_name,
+        len(collected),
     )
 
     if provider is not None and not getattr(args, "skip_shutdown", False):

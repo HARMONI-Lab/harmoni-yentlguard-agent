@@ -16,16 +16,16 @@ import pandas as pd
 from yentlguard.eval.analyze import AnalysisResult
 
 # ── Colour tokens (HARMONI Lab palette) ───────────────────────────────────────
-TEAL   = "#1D9E75"
-CORAL  = "#D85A30"
+TEAL = "#1D9E75"
+CORAL = "#D85A30"
 VIOLET = "#7F77DD"
-GRAY   = "#888780"
-BG     = "#0f1117"
-BG2    = "#161b22"
-BG3    = "#1c2128"
+GRAY = "#888780"
+BG = "#0f1117"
+BG2 = "#161b22"
+BG3 = "#1c2128"
 BORDER = "#30363d"
-TEXT   = "#e6edf3"
-TEXT2  = "#8b949e"
+TEXT = "#e6edf3"
+TEXT2 = "#8b949e"
 
 
 def _df_to_html(df: pd.DataFrame, max_rows: int = 200) -> str:
@@ -53,7 +53,8 @@ def _df_to_html(df: pd.DataFrame, max_rows: int = 200) -> str:
     headers = "".join(f"<th>{c}</th>" for c in display.columns)
     note = (
         f'<p class="truncation-note">Showing first {max_rows} of {len(df)} rows.</p>'
-        if len(df) > max_rows else ""
+        if len(df) > max_rows
+        else ""
     )
     return f"""
 <div class="table-scroll">
@@ -95,14 +96,14 @@ def _overview_cards(result: AnalysisResult) -> str:
     cards = ""
     for _, row in df.iterrows():
         label = row.get("label") or row.get("experiment_id", "")[:8]
-        model  = row.get("model_version", "")
+        model = row.get("model_version", "")
         budget = row.get("thinking_budget", "—")
-        acc    = row.get("accuracy")
-        dm     = row.get("mean_delta_m")
-        tar    = row.get("mean_tar")
-        crr    = row.get("mean_crr")
-        n      = row.get("n_vignettes", "?")
-        fired  = row.get("n_gate_fired", 0)
+        acc = row.get("accuracy")
+        dm = row.get("mean_delta_m")
+        tar = row.get("mean_tar")
+        crr = row.get("mean_crr")
+        n = row.get("n_vignettes", "?")
+        fired = row.get("n_gate_fired", 0)
 
         cards += f"""
 <div class="overview-card">
@@ -482,21 +483,28 @@ def generate_html_report(
     # ── Sections ───────────────────────────────────────────────────────────
     sections = []
 
-    sections.append(_section(
-        "Overview",
-        "Aggregate accuracy, ΔM, TAR, and CRR per model and experiment batch.",
-        experiment_id_html + summary_cards + _overview_cards(result) + _df_to_html(result.overview),
-        "overview",
-    ))
+    sections.append(
+        _section(
+            "Overview",
+            "Aggregate accuracy, ΔM, TAR, and CRR per model and experiment batch.",
+            experiment_id_html
+            + summary_cards
+            + _overview_cards(result)
+            + _df_to_html(result.overview),
+            "overview",
+        )
+    )
 
-    sections.append(_section(
-        "H1 — Reasoning Mitigation Effect",
-        "Does scaling the thinking budget from low → medium → high reduce Perturbation Sensitivity Score? "
-        "A decreasing PSS with higher budget supports the hypothesis that extended reasoning "
-        "actively suppresses surface-level demographic token associations.",
-        _df_to_html(result.h1_thinking_budget),
-        "h1",
-    ))
+    sections.append(
+        _section(
+            "H1 — Reasoning Mitigation Effect",
+            "Does scaling the thinking budget from low → medium → high reduce Perturbation Sensitivity Score? "
+            "A decreasing PSS with higher budget supports the hypothesis that extended reasoning "
+            "actively suppresses surface-level demographic token associations.",
+            _df_to_html(result.h1_thinking_budget),
+            "h1",
+        )
+    )
 
     h2_content = _df_to_html(result.h2_tar_friction)
     if result.h2_tar_friction.empty:
@@ -504,82 +512,96 @@ def generate_html_report(
             '<div class="metric-card" style="border-left-color: var(--gray);">'
             '<span class="card-label">TAR Undefined</span>'
             '<p style="color: var(--text2); margin-top: 8px;">'
-            'Thought Allocation Ratio (TAR) requires a thinking budget. '
-            'The models in this analysis were run with <code>thinking_budget=None</code>, '
-            'so TAR and cognitive friction cannot be measured.</p>'
-            '</div>'
+            "Thought Allocation Ratio (TAR) requires a thinking budget. "
+            "The models in this analysis were run with <code>thinking_budget=None</code>, "
+            "so TAR and cognitive friction cannot be measured.</p>"
+            "</div>"
         )
 
-    sections.append(_section(
-        "H2 — Demographic Cognitive Friction",
-        "Does the presence of a demographic label trigger higher Thought Allocation Ratio? "
-        "If female chest-pain presentations produce higher TAR than male presentations, "
-        "the model is spending more reasoning compute reconciling demographic schema before committing.",
-        h2_content,
-        "h2",
-    ))
+    sections.append(
+        _section(
+            "H2 — Demographic Cognitive Friction",
+            "Does the presence of a demographic label trigger higher Thought Allocation Ratio? "
+            "If female chest-pain presentations produce higher TAR than male presentations, "
+            "the model is spending more reasoning compute reconciling demographic schema before committing.",
+            h2_content,
+            "h2",
+        )
+    )
 
-    sections.append(_section(
-        "H3 — Mathematical Boundary Invariance",
-        "Does Gemini 3.1 Pro maintain wider ΔM under demographic perturbation than 2.5 Pro, "
-        "particularly at the safety-critical ESI 2 ↔ 3 boundary? "
-        "A consistently wider margin under perturbation indicates the newer model "
-        "commits more firmly to triage decisions regardless of demographic signal.",
-        _df_to_html(result.h3_delta_m),
-        "h3",
-    ))
+    sections.append(
+        _section(
+            "H3 — Mathematical Boundary Invariance",
+            "Does Gemini 3.1 Pro maintain wider ΔM under demographic perturbation than 2.5 Pro, "
+            "particularly at the safety-critical ESI 2 ↔ 3 boundary? "
+            "A consistently wider margin under perturbation indicates the newer model "
+            "commits more firmly to triage decisions regardless of demographic signal.",
+            _df_to_html(result.h3_delta_m),
+            "h3",
+        )
+    )
 
-    sections.append(_section(
-        "H4 — Selective Surgery via CRR",
-        "Does vital-sign-foregrounding corrective re-prompting recover the nb_ambiguous "
-        "confidence baseline? CRR = 1.0 indicates full recovery; CRR < 0.1 indicates "
-        "the demographic token's influence on confidence cannot be overcome by prompt intervention alone.",
-        _df_to_html(result.h4_crr),
-        "h4",
-    ))
+    sections.append(
+        _section(
+            "H4 — Selective Surgery via CRR",
+            "Does vital-sign-foregrounding corrective re-prompting recover the nb_ambiguous "
+            "confidence baseline? CRR = 1.0 indicates full recovery; CRR < 0.1 indicates "
+            "the demographic token's influence on confidence cannot be overcome by prompt intervention alone.",
+            _df_to_html(result.h4_crr),
+            "h4",
+        )
+    )
 
-    sections.append(_section(
-        "Sycophancy Control Analysis",
-        "CRR (Pass 2 corrective) vs. three demographically-blind distractor prompts. "
-        "The crr_vs_distractor_gap is the key signal: a large positive gap means "
-        "the corrective prompt's explicit demographic suppression is doing real "
-        "mechanistic work beyond generic authoritative re-prompting. "
-        "A gap near zero is evidence that CRR is measuring directive compliance, "
-        "not genuine debiasing — the primary methodological threat to validity "
-        "of the Selective Surgery framing.",
-        _df_to_html(result.sycophancy),
-        "sycophancy",
-    ))
+    sections.append(
+        _section(
+            "Sycophancy Control Analysis",
+            "CRR (Pass 2 corrective) vs. three demographically-blind distractor prompts. "
+            "The crr_vs_distractor_gap is the key signal: a large positive gap means "
+            "the corrective prompt's explicit demographic suppression is doing real "
+            "mechanistic work beyond generic authoritative re-prompting. "
+            "A gap near zero is evidence that CRR is measuring directive compliance, "
+            "not genuine debiasing — the primary methodological threat to validity "
+            "of the Selective Surgery framing.",
+            _df_to_html(result.sycophancy),
+            "sycophancy",
+        )
+    )
 
-    sections.append(_section(
-        "Gate Statistics",
-        "Distribution of correction gate decisions across models, budgets, and clinical categories. "
-        "Gate fire rate = proportion of female/nb vignettes where ΔM fell below threshold, "
-        "triggering a corrective re-prompt.",
-        _df_to_html(result.gate_stats),
-        "gate",
-    ))
+    sections.append(
+        _section(
+            "Gate Statistics",
+            "Distribution of correction gate decisions across models, budgets, and clinical categories. "
+            "Gate fire rate = proportion of female/nb vignettes where ΔM fell below threshold, "
+            "triggering a corrective re-prompt.",
+            _df_to_html(result.gate_stats),
+            "gate",
+        )
+    )
 
-    sections.append(_section(
-        "Cross-model vignette pivot",
-        "Vignette-level side-by-side comparison across all model versions in this analysis. "
-        "Use this table to identify specific vignette IDs where models diverge — "
-        "high-disagreement vignettes are candidates for qualitative case study.",
-        _df_to_html(result.cross_model, max_rows=100),
-        "pivot",
-    ))
+    sections.append(
+        _section(
+            "Cross-model vignette pivot",
+            "Vignette-level side-by-side comparison across all model versions in this analysis. "
+            "Use this table to identify specific vignette IDs where models diverge — "
+            "high-disagreement vignettes are candidates for qualitative case study.",
+            _df_to_html(result.cross_model, max_rows=100),
+            "pivot",
+        )
+    )
 
     body_content = "\n".join(sections)
-    nav_links = "".join([
-        '<a href="#overview">Overview</a>',
-        '<a href="#h1">H1 · Reasoning</a>',
-        '<a href="#h2">H2 · Friction</a>',
-        '<a href="#h3">H3 · Boundary</a>',
-        '<a href="#h4">H4 · Recovery</a>',
-        '<a href="#sycophancy">Sycophancy</a>',
-        '<a href="#gate">Gate stats</a>',
-        '<a href="#pivot">Vignette pivot</a>',
-    ])
+    nav_links = "".join(
+        [
+            '<a href="#overview">Overview</a>',
+            '<a href="#h1">H1 · Reasoning</a>',
+            '<a href="#h2">H2 · Friction</a>',
+            '<a href="#h3">H3 · Boundary</a>',
+            '<a href="#h4">H4 · Recovery</a>',
+            '<a href="#sycophancy">Sycophancy</a>',
+            '<a href="#gate">Gate stats</a>',
+            '<a href="#pivot">Vignette pivot</a>',
+        ]
+    )
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 

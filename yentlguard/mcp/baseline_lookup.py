@@ -9,15 +9,18 @@ which serves as the recovery target for CRR computation.
 
 import logging
 from abc import ABC, abstractmethod
+
 import pandas as pd
 from google.cloud import bigquery
-from yentlguard.config import RUNS_TABLE, GCP_PROJECT_ID
+from mcp.client.session import ClientSession
 
 # MCP Client imports for future/current usage
 from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
+
+from yentlguard.config import GCP_PROJECT_ID, RUNS_TABLE
 
 logger = logging.getLogger(__name__)
+
 
 class BaselineLookup(ABC):
     """Abstract base class for retrieving nb_ambiguous baseline ΔM values."""
@@ -47,11 +50,11 @@ class BaselineLookup(ABC):
 class BQBackend(BaselineLookup):
     """
     Client for retrieving nb_ambiguous baseline ΔM values from BigQuery.
-    
-    NOTE: The official Arize Phoenix MCP server (@arizeai/phoenix-mcp) does not 
+
+    NOTE: The official Arize Phoenix MCP server (@arizeai/phoenix-mcp) does not
     support filtering spans by custom attributes (like yentlguard.vignette_id).
     Fetching all spans and filtering locally is O(N) and prohibitively slow.
-    
+
     Therefore, this backend bypasses Phoenix MCP entirely and queries the BigQuery
     RUNS_TABLE directly, which contains the exact same baseline data and executes
     in milliseconds. The interface remains the same to satisfy YentlGuardRunner.
@@ -75,22 +78,26 @@ class BQBackend(BaselineLookup):
               AND demographic_variant = @variant
               AND pass_number = 1
         """
-        
+
         query_params = [
             bigquery.ScalarQueryParameter("vignette_id", "STRING", str(vignette_id)),
-            bigquery.ScalarQueryParameter("variant", "STRING", str(variant))
+            bigquery.ScalarQueryParameter("variant", "STRING", str(variant)),
         ]
-        
+
         if model_version:
             query += " AND model_version = @model_version"
-            query_params.append(bigquery.ScalarQueryParameter("model_version", "STRING", str(model_version)))
+            query_params.append(
+                bigquery.ScalarQueryParameter("model_version", "STRING", str(model_version))
+            )
 
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-        
+
         try:
             df = self.client.query(query, job_config=job_config).to_dataframe()
         except Exception as e:
-            raise RuntimeError(f"BigQuery baseline lookup failed for {vignette_id}/{variant}: {e}") from e
+            raise RuntimeError(
+                f"BigQuery baseline lookup failed for {vignette_id}/{variant}: {e}"
+            ) from e
 
         if df.empty or pd.isna(df["avg_dm"].iloc[0]):
             raise ValueError(
@@ -100,8 +107,7 @@ class BQBackend(BaselineLookup):
 
         mean_delta_m = float(df["avg_dm"].iloc[0])
         logger.debug(
-            "BQ baseline: vignette=%s variant=%s delta_m=%.4f",
-            vignette_id, variant, mean_delta_m
+            "BQ baseline: vignette=%s variant=%s delta_m=%.4f", vignette_id, variant, mean_delta_m
         )
         return mean_delta_m
 
@@ -120,13 +126,16 @@ class MCPBackend(BaselineLookup):
     Client for retrieving nb_ambiguous baseline ΔM values via Phoenix MCP.
     """
 
-    def __init__(self, mcp_endpoint: str = "", project_name: str = "yentlguard", api_key: str | None = None):
+    def __init__(
+        self, mcp_endpoint: str = "", project_name: str = "yentlguard", api_key: str | None = None
+    ):
         self.project_name = project_name
         self.mcp_endpoint = mcp_endpoint
         self.api_key = api_key
 
     async def _call_tool(self, name: str, arguments: dict) -> list[dict]:
         import json
+
         async with sse_client(self.mcp_endpoint) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -138,6 +147,7 @@ class MCPBackend(BaselineLookup):
 
     def _run(self, coro):
         import asyncio
+
         return asyncio.run(coro)
 
     def get_baseline_delta_m(
@@ -191,7 +201,7 @@ class MCPBackend(BaselineLookup):
             arguments["filters"]["attributes.yentlguard.model_version"] = model_version
 
         try:
-            return self._run(self._call_tool("get_spans", arguments)) # type: ignore
+            return self._run(self._call_tool("get_spans", arguments))  # type: ignore
         except RuntimeError:
             raise
         except Exception as e:

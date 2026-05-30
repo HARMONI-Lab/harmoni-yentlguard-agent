@@ -86,6 +86,7 @@ class TestGetRunningLoop(unittest.IsolatedAsyncioTestCase):
         }
 
         import warnings
+
         with warnings.catch_warnings():
             warnings.simplefilter("error", DeprecationWarning)
             results = await runner._run_parallel_branches(
@@ -163,9 +164,7 @@ class TestGetRunningLoop(unittest.IsolatedAsyncioTestCase):
             return _make_mock_response()
 
         runner._client = MagicMock()
-        runner._client.models.generate_content = MagicMock(
-            side_effect=mock_generate_with_failure
-        )
+        runner._client.models.generate_content = MagicMock(side_effect=mock_generate_with_failure)
 
         run = VignetteRun(
             vignette_id="ED_TEST_003",
@@ -212,6 +211,7 @@ class TestGetRunningLoopSourceInspection(unittest.TestCase):
 
     def test_source_uses_get_running_loop(self):
         import yentlguard.agent.runner as runner_module
+
         source = inspect.getsource(runner_module)
         self.assertNotIn(
             "get_event_loop",

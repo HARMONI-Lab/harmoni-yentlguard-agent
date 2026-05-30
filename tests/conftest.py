@@ -33,35 +33,34 @@ if not _is_preflight:
 
     _STUB_NAMES = [
         # OpenInference
-
-    "openinference",
-    "openinference.instrumentation",
-    "openinference.instrumentation.google_genai",
-    # OpenTelemetry core
-    "opentelemetry",
-    "opentelemetry.trace",
-    # OpenTelemetry SDK
-    "opentelemetry.sdk",
-    "opentelemetry.sdk.trace",
-    "opentelemetry.sdk.trace.export",
-    "opentelemetry.sdk.resources",
-    # OpenTelemetry OTLP exporter chain
-    "opentelemetry.exporter",
-    "opentelemetry.exporter.otlp",
-    "opentelemetry.exporter.otlp.proto",
-    "opentelemetry.exporter.otlp.proto.http",
-    "opentelemetry.exporter.otlp.proto.http.trace_exporter",
-    # Google GenAI / Vertex AI
-    "google",
-    "google.genai",
-    "google.genai.types",
-    "google.cloud",
-    "google.cloud.bigquery",
-    # Vertex AI
-    "vertexai",
-    "vertexai.preview",
-    "vertexai.preview.evaluation",
-]
+        "openinference",
+        "openinference.instrumentation",
+        "openinference.instrumentation.google_genai",
+        # OpenTelemetry core
+        "opentelemetry",
+        "opentelemetry.trace",
+        # OpenTelemetry SDK
+        "opentelemetry.sdk",
+        "opentelemetry.sdk.trace",
+        "opentelemetry.sdk.trace.export",
+        "opentelemetry.sdk.resources",
+        # OpenTelemetry OTLP exporter chain
+        "opentelemetry.exporter",
+        "opentelemetry.exporter.otlp",
+        "opentelemetry.exporter.otlp.proto",
+        "opentelemetry.exporter.otlp.proto.http",
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        # Google GenAI / Vertex AI
+        "google",
+        "google.genai",
+        "google.genai.types",
+        "google.cloud",
+        "google.cloud.bigquery",
+        # Vertex AI
+        "vertexai",
+        "vertexai.preview",
+        "vertexai.preview.evaluation",
+    ]
 
     for _name in _STUB_NAMES:
         _stub(_name)
@@ -96,20 +95,21 @@ if not _is_preflight:
     _trace.SpanKind = MagicMock()
     _trace.Status = MagicMock()
     _trace.StatusCode = MagicMock()
-    _trace.Span = MagicMock          # annotation.py imports Span as a type
+    _trace.Span = MagicMock  # annotation.py imports Span as a type
     _trace.NonRecordingSpan = MagicMock()
 
     # yentlguard.config stub — must be registered before yentlguard submodules import it
     import types as _types
+
     _cfg = _types.ModuleType("yentlguard.config")
     _cfg.GCP_PROJECT_ID = "test-project"
-    _cfg.GCP_LOCATION   = "us-central1"
-    _cfg.BQ_DATASET_ID  = "test_dataset"
-    _cfg.FULL_DATASET   = "test-project.test_dataset"
-    _cfg.RUNS_TABLE     = "test-project.test_dataset.runs"
-    _cfg.EXPTS_TABLE    = "test-project.test_dataset.experiments"
-    _cfg.BQ_LOCATION    = "US"
-    _cfg.validate       = MagicMock()
+    _cfg.GCP_LOCATION = "us-central1"
+    _cfg.BQ_DATASET_ID = "test_dataset"
+    _cfg.FULL_DATASET = "test-project.test_dataset"
+    _cfg.RUNS_TABLE = "test-project.test_dataset.runs"
+    _cfg.EXPTS_TABLE = "test-project.test_dataset.experiments"
+    _cfg.BQ_LOCATION = "US"
+    _cfg.validate = MagicMock()
     sys.modules["yentlguard.config"] = _cfg
 
     # google.genai stubs
@@ -131,7 +131,6 @@ if not _is_preflight:
     _bq.ArrayQueryParameter = MagicMock()
     _bq.ScalarQueryParameter = MagicMock()
     _bq.QueryJobConfig = MagicMock()
-
 
     # vertexai stubs
     _vai = sys.modules["vertexai"]

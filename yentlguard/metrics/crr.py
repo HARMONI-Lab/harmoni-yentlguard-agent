@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CRRResult:
     vignette_id: str
-    demographic_variant: str          # e.g., "male", "female", "nb_label_only"
-    delta_m_baseline: float           # nb_ambiguous trace for this vignette_id
-    delta_m_pass1: float              # degraded confidence under demographic token
-    delta_m_pass2: float              # after corrective re-prompt
+    demographic_variant: str  # e.g., "male", "female", "nb_label_only"
+    delta_m_baseline: float  # nb_ambiguous trace for this vignette_id
+    delta_m_pass1: float  # degraded confidence under demographic token
+    delta_m_pass2: float  # after corrective re-prompt
     crr: float
     esi_token_pass1: str
     esi_token_pass2: str

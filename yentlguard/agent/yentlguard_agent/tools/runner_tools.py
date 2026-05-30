@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,7 @@ logger = logging.getLogger(__name__)
 def run_baseline(
     model: str = "gemini-2.5-pro",
     budget: str = "medium",
-    dataset_path: str = "dataset_output/dataset_quintets.csv",
+    split: str = "nb_ambiguous",
 ) -> str:
     """
     Run the nb_ambiguous baseline pass for a model + thinking budget tier.
@@ -46,8 +45,6 @@ def run_baseline(
     Args:
         model: Gemini model string (e.g., "gemini-2.5-pro", "gemini-2.5-flash").
         budget: Thinking budget tier — "low", "medium", or "high".
-        dataset_path: Path to dataset_quintets.csv produced by yentlbench prepare.
-                      Default assumes CWD is the project root.
 
     Returns:
         JSON object with status, model, budget, and experiment_id on success.
@@ -60,16 +57,11 @@ def run_baseline(
     except RuntimeError as e:
         return f"Error: GCP config incomplete — {e}"
 
-    if not Path(dataset_path).exists():
-        return (
-            f"Error: dataset not found at {dataset_path}. "
-            "Run: yentlbench prepare  (requires MIMIC-IV-ED data)"
-        )
-
     import argparse
+
     from yentlguard.cli import cmd_baseline
 
-    args = argparse.Namespace(model=model, budget=budget, dataset=dataset_path, skip_shutdown=True)
+    args = argparse.Namespace(model=model, budget=budget, split=split, skip_shutdown=True)
     try:
         experiment_id = cmd_baseline(args)
         return json.dumps(
@@ -85,7 +77,6 @@ def run_experiment(
     variants: list[str],
     budgets: list[str],
     label: str,
-    dataset_path: str = "dataset_output/dataset_quintets.csv",
     threshold: float = 1.0,
     notes: str | None = None,
 ) -> str:
@@ -113,7 +104,6 @@ def run_experiment(
         variants: Demographic variants to run, e.g. ["female", "nb_label_only"].
         budgets: Thinking budget tiers, e.g. ["low", "medium", "high"].
         label: Human-readable experiment label stored in the experiments table.
-        dataset_path: Path to dataset_quintets.csv.
         threshold: ΔM threshold for the correction gate (default 1.0 nat).
                    Lower values fire the gate less aggressively.
         notes: Optional free-text notes stored with the experiment batch.
@@ -129,13 +119,8 @@ def run_experiment(
     except RuntimeError as e:
         return f"Error: GCP config incomplete — {e}"
 
-    if not Path(dataset_path).exists():
-        return (
-            f"Error: dataset not found at {dataset_path}. "
-            "Run: yentlbench prepare  (requires MIMIC-IV-ED data)"
-        )
+    valid_variants = {"male", "female", "nb_ambiguous", "nb_label_only", "nb_full"}
 
-    valid_variants = {"male", "female", "nb_ambiguous", "nb_label_only"}
     invalid = [v for v in variants if v not in valid_variants]
     if invalid:
         return f"Error: invalid variants {invalid}. Valid: {sorted(valid_variants)}"
@@ -146,39 +131,38 @@ def run_experiment(
         return f"Error: invalid budgets {invalid_b}. Valid: {sorted(valid_budgets)}"
 
     import argparse
+
     from yentlguard.cli import cmd_run
-    import os
 
     args = argparse.Namespace(
         model=model,
         variants=variants,
         budget=budgets,
         label=label,
-        dataset=dataset_path,
         threshold=threshold,
         notes=notes,
-        phoenix_mcp_endpoint=os.environ.get(
-            "PHOENIX_MCP_ENDPOINT", "https://app.phoenix.arize.com"
-        ),
         skip_shutdown=True,
     )
     try:
         experiment_id = cmd_run(args)
-        return json.dumps({
-            "status": "complete",
-            "experiment_id": experiment_id,
-            "model": model,
-            "variants": variants,
-            "budgets": budgets,
-            "next_steps": (
-                "To get the Phoenix experiment view: call query_bigquery to retrieve "
-                "phoenix_dataset_id from the experiments table for this experiment_id, then "
-                "call list-experiments-for-dataset with that dataset_id."
-            ),
-        })
+        return json.dumps(
+            {
+                "status": "complete",
+                "experiment_id": experiment_id,
+                "model": model,
+                "variants": variants,
+                "budgets": budgets,
+                "next_steps": (
+                    "To get the Phoenix experiment view: call query_bigquery to retrieve "
+                    "phoenix_dataset_id from the experiments table for this experiment_id, then "
+                    "call list-experiments-for-dataset with that dataset_id."
+                ),
+            }
+        )
     except Exception as e:
         logger.error("run_experiment failed: %s", e)
         return f"Error: experiment run failed — {e}"
+
 
 def analyze_run(
     experiment_ids: list[str],
@@ -198,7 +182,7 @@ def analyze_run(
 
     Returns:
         JSON object with output_dir, experiment_ids, and status on success.
-    
+
     Pull completed run data from BigQuery, compute H1-H5 summary statistics,
     and write a self-contained HTML report plus CSV files to the output directory.
 
@@ -221,6 +205,7 @@ def analyze_run(
         return f"Error: GCP config incomplete — {e}"
 
     import argparse
+
     from yentlguard.cli import cmd_analyze
 
     args = argparse.Namespace(

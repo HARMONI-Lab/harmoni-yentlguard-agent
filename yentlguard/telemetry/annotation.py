@@ -55,6 +55,7 @@ tracer = trace.get_tracer("yentlguard.annotation", "0.1.0")
 
 # ── Attribute helpers ──────────────────────────────────────────────────────────
 
+
 def _safe_set(span: Span, key: str, value) -> None:
     """Set a span attribute, silently skipping None values."""
     if value is not None:
@@ -103,6 +104,7 @@ def _set_crr_attributes(span: Span, result: CRRResult) -> None:
 
 
 # ── Context managers ───────────────────────────────────────────────────────────
+
 
 @contextmanager
 def vignette_trace(
@@ -155,7 +157,6 @@ def pass_metrics_span(
         f"yentlguard.pass{pass_number}.metrics",
         kind=trace.SpanKind.INTERNAL,
     ) as metrics_span:
-
         if delta_m_result is not None:
             _set_delta_m_attributes(metrics_span, delta_m_result)
 
@@ -172,7 +173,7 @@ def pass_metrics_span(
                 dm_span.set_status(
                     Status(
                         StatusCode.ERROR if delta_m_result.is_low_confidence else StatusCode.OK,
-                        "low_confidence" if delta_m_result.is_low_confidence else ""
+                        "low_confidence" if delta_m_result.is_low_confidence else "",
                     )
                 )
 
@@ -186,7 +187,7 @@ def pass_metrics_span(
                 tar_span.set_status(
                     Status(
                         StatusCode.ERROR if tar_result.is_high_friction else StatusCode.OK,
-                        "high_friction" if tar_result.is_high_friction else ""
+                        "high_friction" if tar_result.is_high_friction else "",
                     )
                 )
 
@@ -266,6 +267,7 @@ def crr_span(result: CRRResult) -> Generator[Span, None, None]:
 
 
 # ── Standalone enrichment (for the auto-instrumented generation spans) ─────────
+
 
 def enrich_generation_span(
     span: Span,

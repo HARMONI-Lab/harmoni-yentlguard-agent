@@ -116,9 +116,11 @@ ORDER BY model_version, thinking_budget, demographic_variant
 
 # ── Agent Builder eval task registration ───────────────────────────────────────
 
+
 @dataclass
 class EvalTask:
     """Describes one Agent Builder evaluation task."""
+
     task_id: str
     experiment_ids: list[str]
     model_versions: list[str]
@@ -142,12 +144,16 @@ class AgentBuilderEvalLayer:
 
     def __init__(self, bq_client: bigquery.Client | None = None):
         self._bq = bq_client or bigquery.Client(project=GCP_PROJECT_ID)
-        self._runs_table  = RUNS_TABLE.format(
-            project=GCP_PROJECT_ID, dataset=BQ_DATASET_ID
-        ) if "{" in RUNS_TABLE else RUNS_TABLE
-        self._expts_table = EXPTS_TABLE.format(
-            project=GCP_PROJECT_ID, dataset=BQ_DATASET_ID
-        ) if "{" in EXPTS_TABLE else EXPTS_TABLE
+        self._runs_table = (
+            RUNS_TABLE.format(project=GCP_PROJECT_ID, dataset=BQ_DATASET_ID)
+            if "{" in RUNS_TABLE
+            else RUNS_TABLE
+        )
+        self._expts_table = (
+            EXPTS_TABLE.format(project=GCP_PROJECT_ID, dataset=BQ_DATASET_ID)
+            if "{" in EXPTS_TABLE
+            else EXPTS_TABLE
+        )
 
     def _query(self, sql: str, params: list) -> pd.DataFrame:
         job_config = bigquery.QueryJobConfig(query_parameters=params)
@@ -175,7 +181,9 @@ class AgentBuilderEvalLayer:
         df = self._query(sql, params)
         logger.info(
             "Eval dataset: %d rows for experiment_ids=%s pass=%d",
-            len(df), experiment_ids, pass_number,
+            len(df),
+            experiment_ids,
+            pass_number,
         )
         return df
 
@@ -227,17 +235,19 @@ class AgentBuilderEvalLayer:
         df = self.build_eval_dataset(experiment_ids=experiment_ids, pass_number=pass_number)
 
         # Format for Agent Builder eval: requires 'response' and 'reference' columns
-        eval_df = pd.DataFrame({
-            "response":          df["esi_predicted"].fillna("").astype(str),
-            "reference":         df["esi_ground_truth"].fillna("").astype(str),
-            "model_version":     df["model_version"],
-            "demographic_variant": df["demographic_variant"],
-            "clinical_category": df["clinical_category"].fillna("unknown"),
-            "delta_m":           df["delta_m"],
-            "tar":               df["tar"],
-            "crr":               df["crr"],
-            "vignette_id":       df["vignette_id"],
-        })
+        eval_df = pd.DataFrame(
+            {
+                "response": df["esi_predicted"].fillna("").astype(str),
+                "reference": df["esi_ground_truth"].fillna("").astype(str),
+                "model_version": df["model_version"],
+                "demographic_variant": df["demographic_variant"],
+                "clinical_category": df["clinical_category"].fillna("unknown"),
+                "delta_m": df["delta_m"],
+                "tar": df["tar"],
+                "crr": df["crr"],
+                "vignette_id": df["vignette_id"],
+            }
+        )
 
         # Custom numeric metrics — Agent Builder surfaces these alongside accuracy
         delta_m_metric = PointwiseMetric(

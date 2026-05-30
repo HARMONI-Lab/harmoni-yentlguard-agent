@@ -52,17 +52,13 @@ def setup_phoenix_tracing(
     api_key = os.environ.get("PHOENIX_API_KEY", "").strip()
     if not api_key:
         logger.warning(
-            "PHOENIX_API_KEY not set — Phoenix tracing disabled. "
-            "Spans will not be exported."
+            "PHOENIX_API_KEY not set — Phoenix tracing disabled. Spans will not be exported."
         )
         return None
 
     from phoenix.otel import register
 
-    resolved_project = (
-        project_name
-        or os.environ.get("PHOENIX_PROJECT_NAME", "yentlguard")
-    )
+    resolved_project = project_name or os.environ.get("PHOENIX_PROJECT_NAME", "yentlguard")
 
     endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "").strip()
     if endpoint and not endpoint.endswith("/v1/traces"):
@@ -76,7 +72,5 @@ def setup_phoenix_tracing(
         verbose=False,
     )
 
-    logger.info(
-        "YentlGuard → Phoenix tracing active. Project: %s", resolved_project
-    )
+    logger.info("YentlGuard → Phoenix tracing active. Project: %s", resolved_project)
     return _provider

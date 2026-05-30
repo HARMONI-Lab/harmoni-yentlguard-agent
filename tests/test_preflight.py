@@ -58,10 +58,12 @@ VERTEX_TIMEOUT = 60
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _load_config():
     """Load and validate GCP config. Skip test if placeholders unfilled."""
     try:
         from yentlguard.config import BQ_DATASET_ID, GCP_LOCATION, GCP_PROJECT_ID, validate
+
         validate()
         return GCP_PROJECT_ID, GCP_LOCATION, BQ_DATASET_ID
     except RuntimeError as e:
@@ -74,6 +76,7 @@ def _load_vignettes(variant: str, n: int):
     import pathlib
 
     import pandas as pd
+
     try:
         from yentlbench.local_runner.prompt import build_prompt
     except ImportError:
@@ -83,10 +86,7 @@ def _load_vignettes(variant: str, n: int):
         os.environ.get("YENTLGUARD_DATASET_PATH", "dataset_output/dataset_quintets.csv")
     )
     if not dataset_path.exists():
-        pytest.skip(
-            f"dataset_quintets.csv not found at {dataset_path}. "
-            "Run: yentlbench prepare"
-        )
+        pytest.skip(f"dataset_quintets.csv not found at {dataset_path}. Run: yentlbench prepare")
 
     df = pd.read_csv(dataset_path)
     df = df[df["acuity"].notna() & (df["gender_variant"] == variant)]
@@ -94,11 +94,15 @@ def _load_vignettes(variant: str, n: int):
     vignettes = []
     for _, row in df.head(n).iterrows():
         vignette_dict = row.to_dict()
-        obj = type("Vignette", (), {
-            "vignette_id": str(int(vignette_dict["source_stay_id"])),
-            "text": build_prompt(vignette_dict, variant),
-            "_row": vignette_dict,
-        })()
+        obj = type(
+            "Vignette",
+            (),
+            {
+                "vignette_id": str(int(vignette_dict["source_stay_id"])),
+                "text": build_prompt(vignette_dict, variant),
+                "_row": vignette_dict,
+            },
+        )()
         vignettes.append(obj)
 
     if not vignettes:
@@ -109,12 +113,14 @@ def _load_vignettes(variant: str, n: int):
 def _make_vertex_client(project: str, location: str):
     """Instantiate a Vertex AI Gemini client."""
     from google import genai
+
     return genai.Client(vertexai=True, project=project, location=location)
 
 
 def _make_runner(project: str, location: str):
     """Instantiate a YentlGuardRunner with no Phoenix MCP client."""
     from yentlguard.agent.runner import YentlGuardRunner
+
     return YentlGuardRunner(
         model_version=PREFLIGHT_MODEL,
         thinking_budget=PREFLIGHT_BUDGET,
@@ -125,6 +131,7 @@ def _make_runner(project: str, location: str):
 
 # ── Check 1: GCP credentials ──────────────────────────────────────────────────
 
+
 @pytest.mark.live
 class TestGCPCredentials(unittest.TestCase):
     """Verify Application Default Credentials are configured."""
@@ -133,6 +140,7 @@ class TestGCPCredentials(unittest.TestCase):
         """google.auth.default() must resolve without raising."""
         try:
             import google.auth
+
             credentials, project = google.auth.default()
             self.assertIsNotNone(credentials)
         except ImportError:
@@ -154,6 +162,7 @@ class TestGCPCredentials(unittest.TestCase):
 
 # ── Check 2: Vertex AI / Gemini ───────────────────────────────────────────────
 
+
 @pytest.mark.live
 class TestVertexAIConnection(unittest.TestCase):
     """Verify Vertex AI can serve Gemini with logprobs enabled."""
@@ -165,6 +174,7 @@ class TestVertexAIConnection(unittest.TestCase):
     def test_gemini_responds(self):
         """Gemini must return a text response for a simple prompt."""
         from google.genai import types
+
         response = self.client.models.generate_content(
             model=PREFLIGHT_MODEL,
             contents="Reply with the single digit 3.",
@@ -179,6 +189,7 @@ class TestVertexAIConnection(unittest.TestCase):
         This is the prerequisite for ΔM computation.
         """
         from google.genai import types
+
         response = self.client.models.generate_content(
             model=PREFLIGHT_MODEL,
             contents="Reply with the single digit 3.",
@@ -192,7 +203,7 @@ class TestVertexAIConnection(unittest.TestCase):
         self.assertIsNotNone(
             candidate.logprobs_result,
             "logprobs_result is None — verify response_logprobs=True is "
-            f"supported for {PREFLIGHT_MODEL} on Vertex AI."
+            f"supported for {PREFLIGHT_MODEL} on Vertex AI.",
         )
         chosen = candidate.logprobs_result.chosen_candidates
         self.assertGreater(len(chosen), 0, "chosen_candidates list is empty")
@@ -200,14 +211,14 @@ class TestVertexAIConnection(unittest.TestCase):
     def test_gemini_returns_usage_metadata(self):
         """usage_metadata must be present for TAR computation."""
         from google.genai import types
+
         response = self.client.models.generate_content(
             model=PREFLIGHT_MODEL,
             contents="Reply with the single digit 3.",
             config=types.GenerateContentConfig(temperature=0.0),
         )
         self.assertIsNotNone(
-            response.usage_metadata,
-            "usage_metadata is None — TAR cannot be computed."
+            response.usage_metadata, "usage_metadata is None — TAR cannot be computed."
         )
         self.assertIsNotNone(response.usage_metadata.candidates_token_count)
 
@@ -218,6 +229,7 @@ class TestVertexAIConnection(unittest.TestCase):
         If None, TAR will be null for all rows — expected for some model/budget combos.
         """
         from google.genai import types
+
         response = self.client.models.generate_content(
             model=PREFLIGHT_MODEL,
             contents="Reply with the single digit 3.",
@@ -239,6 +251,7 @@ class TestVertexAIConnection(unittest.TestCase):
 
 # ── Check 3: YentlBench data contract ─────────────────────────────────────────
 
+
 @pytest.mark.yentlbench
 class TestYentlBenchData(unittest.TestCase):
     """Verify YentlBench loads vignettes with the expected schema."""
@@ -252,33 +265,33 @@ class TestYentlBenchData(unittest.TestCase):
         """Each vignette must have vignette_id and text attributes."""
         vignettes = _load_vignettes(PREFLIGHT_VARIANT, PREFLIGHT_N)
         for v in vignettes:
-            self.assertTrue(
-                hasattr(v, "vignette_id"),
-                f"Vignette missing vignette_id: {v}"
-            )
-            self.assertTrue(
-                hasattr(v, "text"),
-                f"Vignette {v.vignette_id} missing text attribute"
-            )
+            self.assertTrue(hasattr(v, "vignette_id"), f"Vignette missing vignette_id: {v}")
+            self.assertTrue(hasattr(v, "text"), f"Vignette {v.vignette_id} missing text attribute")
             self.assertIsInstance(v.vignette_id, str)
             self.assertGreater(len(v.vignette_id), 0)
             self.assertIsInstance(v.text, str)
-            self.assertGreater(len(v.text), 50,
-                f"Vignette {v.vignette_id} text is suspiciously short: {repr(v.text)}")
+            self.assertGreater(
+                len(v.text),
+                50,
+                f"Vignette {v.vignette_id} text is suspiciously short: {repr(v.text)}",
+            )
 
     def test_all_five_variants_load(self):
         """All four YentlGuard variants must have rows in dataset_quintets.csv."""
         from yentlbench.config import ALL_VARIANTS
+
         dataset_path = _find_quintets_csv()
         if dataset_path is None:
             self.skipTest("dataset_quintets.csv not found")
         import pandas as pd
+
         df = pd.read_csv(dataset_path)
         for variant in ALL_VARIANTS:
             with self.subTest(variant=variant):
                 count = len(df[df["gender_variant"] == variant])
-                self.assertGreater(count, 0,
-                    f"No rows for variant={variant} in dataset_quintets.csv")
+                self.assertGreater(
+                    count, 0, f"No rows for variant={variant} in dataset_quintets.csv"
+                )
 
     def test_vignettes_contain_demographic_signal(self):
         """
@@ -286,28 +299,35 @@ class TestYentlBenchData(unittest.TestCase):
         nb_ambiguous prompts must not.
         """
         from yentlbench.local_runner.prompt import build_prompt
+
         dataset_path = _find_quintets_csv()
         if dataset_path is None:
             self.skipTest("dataset_quintets.csv not found")
         import pandas as pd
+
         df = pd.read_csv(dataset_path)
 
         female_tokens = {"female", "woman", "she", "her"}
         for _, row in df[df["gender_variant"] == "female"].head(3).iterrows():
             prompt = build_prompt(row.to_dict(), "female").lower()
             has_token = any(t in prompt for t in female_tokens)
-            self.assertTrue(has_token,
+            self.assertTrue(
+                has_token,
                 f"Female prompt for source_stay_id={row['source_stay_id']} "
-                f"contains no demographic token. Snippet: {prompt[:200]}")
+                f"contains no demographic token. Snippet: {prompt[:200]}",
+            )
 
         for _, row in df[df["gender_variant"] == "nb_ambiguous"].head(3).iterrows():
             prompt = build_prompt(row.to_dict(), "nb_ambiguous").lower()
             # Sex: nan is acceptable — it carries no demographic signal
             # Sex: female / male / non-binary would be a bug
             for bad_token in {"sex: female", "sex: male", "sex: non-binary"}:
-                self.assertNotIn(bad_token, prompt,
+                self.assertNotIn(
+                    bad_token,
+                    prompt,
                     f"nb_ambiguous prompt for source_stay_id={row['source_stay_id']} "
-                    f"contains explicit sex label '{bad_token}' — demographic signal should be absent.")
+                    f"contains explicit sex label '{bad_token}' — demographic signal should be absent.",
+                )
 
     def test_preflight_subset_vs_full(self):
         """
@@ -333,6 +353,7 @@ class TestYentlBenchData(unittest.TestCase):
 
 # ── Check 4: Arize Phoenix tracing ────────────────────────────────────────────
 
+
 @pytest.mark.live
 @pytest.mark.phoenix
 class TestPhoenixTracing(unittest.TestCase):
@@ -342,13 +363,9 @@ class TestPhoenixTracing(unittest.TestCase):
         """PHOENIX_API_KEY and PHOENIX_COLLECTOR_ENDPOINT must be set."""
         key = os.environ.get("PHOENIX_API_KEY")
         endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT")
+        self.assertIsNotNone(key, "PHOENIX_API_KEY not set. Export it before running pre-flight.")
         self.assertIsNotNone(
-            key,
-            "PHOENIX_API_KEY not set. Export it before running pre-flight."
-        )
-        self.assertIsNotNone(
-            endpoint,
-            "PHOENIX_COLLECTOR_ENDPOINT not set. Export it before running pre-flight."
+            endpoint, "PHOENIX_COLLECTOR_ENDPOINT not set. Export it before running pre-flight."
         )
         self.assertNotEqual(key, "your_phoenix_api_key")
 
@@ -370,9 +387,10 @@ class TestPhoenixTracing(unittest.TestCase):
             r = requests.head(url, headers={"api_key": api_key}, timeout=10)
             # 200, 405 (method not allowed), or 404 all confirm the server is up
             self.assertIn(
-                r.status_code, [200, 404, 405],
+                r.status_code,
+                [200, 404, 405],
                 f"Unexpected status {r.status_code} from Phoenix. "
-                f"Server may be unreachable at {url}."
+                f"Server may be unreachable at {url}.",
             )
         except requests.exceptions.ConnectionError as e:
             self.fail(
@@ -385,6 +403,7 @@ class TestPhoenixTracing(unittest.TestCase):
 
 # ── Check 5: BigQuery connectivity ────────────────────────────────────────────
 
+
 @pytest.mark.live
 class TestBigQueryConnectivity(unittest.TestCase):
     """Verify BigQuery tables exist and accept streaming inserts."""
@@ -396,6 +415,7 @@ class TestBigQueryConnectivity(unittest.TestCase):
         """BigQuery client must initialize without credential errors."""
         try:
             from google.cloud import bigquery
+
             client = bigquery.Client(project=self.project)
             self.assertIsNotNone(client)
         except Exception as e:
@@ -407,17 +427,16 @@ class TestBigQueryConnectivity(unittest.TestCase):
             from google.cloud import bigquery
 
             from yentlguard.config import RUNS_TABLE
+
             client = bigquery.Client(project=self.project)
             table = client.get_table(RUNS_TABLE)
             self.assertIsNotNone(table)
             self.assertGreater(
-                len(table.schema), 0,
-                "runs table exists but has no columns — schema may be wrong."
+                len(table.schema), 0, "runs table exists but has no columns — schema may be wrong."
             )
         except Exception as e:
             self.fail(
-                f"runs table not found or inaccessible: {e}\n"
-                "Run: python -m yentlguard.eval.schema"
+                f"runs table not found or inaccessible: {e}\nRun: python -m yentlguard.eval.schema"
             )
 
     def test_experiments_table_exists(self):
@@ -426,14 +445,12 @@ class TestBigQueryConnectivity(unittest.TestCase):
             from google.cloud import bigquery
 
             from yentlguard.config import EXPTS_TABLE
+
             client = bigquery.Client(project=self.project)
             table = client.get_table(EXPTS_TABLE)
             self.assertIsNotNone(table)
         except Exception as e:
-            self.fail(
-                f"experiments table not found: {e}\n"
-                "Run: python -m yentlguard.eval.schema"
-            )
+            self.fail(f"experiments table not found: {e}\nRun: python -m yentlguard.eval.schema")
 
     def test_bq_streaming_insert_accepts_row(self):
         """
@@ -460,15 +477,13 @@ class TestBigQueryConnectivity(unittest.TestCase):
                 "errors": [],
             }
             errors = client.insert_rows_json(RUNS_TABLE, [test_row])
-            self.assertEqual(
-                errors, [],
-                f"BigQuery streaming insert returned errors: {errors}"
-            )
+            self.assertEqual(errors, [], f"BigQuery streaming insert returned errors: {errors}")
         except Exception as e:
             self.fail(f"BigQuery streaming insert failed: {e}")
 
 
 # ── Check 6: Phoenix MCP reachability ─────────────────────────────────────────
+
 
 @pytest.mark.mcp
 class TestPhoenixMCPReachability(unittest.TestCase):
@@ -476,8 +491,7 @@ class TestPhoenixMCPReachability(unittest.TestCase):
 
     def setUp(self):
         self.mcp_endpoint = os.environ.get(
-            "YENTLGUARD_PHOENIX_MCP_ENDPOINT",
-            "http://localhost:6006/mcp/sse"
+            "YENTLGUARD_PHOENIX_MCP_ENDPOINT", "http://localhost:6006/mcp/sse"
         )
 
     def test_mcp_endpoint_configured(self):
@@ -506,9 +520,10 @@ class TestPhoenixMCPReachability(unittest.TestCase):
             )
             r.close()
             self.assertIn(
-                r.status_code, [200, 404, 405, 406],
+                r.status_code,
+                [200, 404, 405, 406],
                 f"Unexpected status {r.status_code} from MCP endpoint. "
-                f"Check Phoenix is running at {self.mcp_endpoint}."
+                f"Check Phoenix is running at {self.mcp_endpoint}.",
             )
         except requests.exceptions.ConnectionError:
             self.skipTest(
@@ -521,6 +536,7 @@ class TestPhoenixMCPReachability(unittest.TestCase):
 
 
 # ── Check 7: Metrics compute on real Gemini response ─────────────────────────
+
 
 @pytest.mark.live
 @pytest.mark.yentlbench
@@ -567,8 +583,11 @@ class TestMetricsOnRealResponse(unittest.TestCase):
                     any_delta_m = True
                     self.assertIsInstance(dm.delta_m, (float, type(None)))
                     self.assertIsInstance(dm.esi_token, str)
-                    self.assertIn(dm.esi_token, {"1", "2", "3", "4", "5"},
-                        f"ESI token {dm.esi_token!r} is not a valid ESI digit")
+                    self.assertIn(
+                        dm.esi_token,
+                        {"1", "2", "3", "4", "5"},
+                        f"ESI token {dm.esi_token!r} is not a valid ESI digit",
+                    )
                     print(
                         f"\n  {v.vignette_id}: ESI={dm.esi_token} "
                         f"ΔM={dm.delta_m:.4f} "
@@ -606,6 +625,7 @@ class TestMetricsOnRealResponse(unittest.TestCase):
 
 
 # ── Check 8: Parallel Triad on 3 vignettes ───────────────────────────────────
+
 
 @pytest.mark.live
 @pytest.mark.yentlbench
@@ -655,31 +675,28 @@ class TestParallelTriadPreflight(unittest.TestCase):
 
             # No fatal errors
             fatal_errors = [e for e in run.errors if "Pass 1" in e]
-            self.assertEqual(
-                fatal_errors, [],
-                f"Pass 1 failed for {v.vignette_id}: {fatal_errors}"
-            )
+            self.assertEqual(fatal_errors, [], f"Pass 1 failed for {v.vignette_id}: {fatal_errors}")
 
             # Gate must have fired (threshold=999.0 forces it)
             self.assertTrue(
                 run.intervention_triggered,
                 f"Gate did not fire for {v.vignette_id}. "
-                "Check ΔM extraction — gate_threshold=999.0 should always fire."
+                "Check ΔM extraction — gate_threshold=999.0 should always fire.",
             )
 
             # All four branches must have executed
             self.assertIsNotNone(
-                run.pass2_delta_m,
-                f"{v.vignette_id}: corrective branch (pass2) produced no ΔM"
+                run.pass2_delta_m, f"{v.vignette_id}: corrective branch (pass2) produced no ΔM"
             )
-            for label, attr in [("3a", "pass3a_delta_m"), ("3b", "pass3b_delta_m"), ("3c", "pass3c_delta_m")]:
+            for label, attr in [
+                ("3a", "pass3a_delta_m"),
+                ("3b", "pass3b_delta_m"),
+                ("3c", "pass3c_delta_m"),
+            ]:
                 dm = getattr(run, attr, None)
-                distractor_error = next(
-                    (e for e in run.errors if f"Pass {label}" in e), None
-                )
+                distractor_error = next((e for e in run.errors if f"Pass {label}" in e), None)
                 self.assertIsNone(
-                    distractor_error,
-                    f"{v.vignette_id}: branch {label} failed: {distractor_error}"
+                    distractor_error, f"{v.vignette_id}: branch {label} failed: {distractor_error}"
                 )
 
             print(
@@ -701,9 +718,10 @@ class TestParallelTriadPreflight(unittest.TestCase):
         # At least 2 of 3 must complete without any errors
         clean_runs = [r for r in results if not r.errors]
         self.assertGreaterEqual(
-            len(clean_runs), 2,
+            len(clean_runs),
+            2,
             f"Too many vignettes had errors: "
-            f"{[(r.vignette_id, r.errors) for r in results if r.errors]}"
+            f"{[(r.vignette_id, r.errors) for r in results if r.errors]}",
         )
 
         if provider:
@@ -737,12 +755,12 @@ class TestParallelTriadPreflight(unittest.TestCase):
         ]:
             esi = getattr(run, attr)
             self.assertIn(
-                esi, valid_esi,
-                f"{label} ESI token {esi!r} is not a valid ESI digit or None"
+                esi, valid_esi, f"{label} ESI token {esi!r} is not a valid ESI digit or None"
             )
 
 
 # ── pytest markers registration ───────────────────────────────────────────────
+
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "live: requires live GCP credentials and network")

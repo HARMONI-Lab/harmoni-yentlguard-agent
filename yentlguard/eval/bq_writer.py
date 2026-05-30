@@ -37,9 +37,7 @@ def _model_family(model_version: str) -> str:
     return model_version
 
 
-def _esi_direction_error(
-    predicted: str | None, ground_truth: str | None
-) -> str | None:
+def _esi_direction_error(predicted: str | None, ground_truth: str | None) -> str | None:
     if predicted is None or ground_truth is None:
         return None
     try:
@@ -97,7 +95,6 @@ def run_to_rows(
         "errors": run.errors,
     }
 
-
     rows = []
 
     # ── Pass 1 row ─────────────────────────────────────────────────────────
@@ -106,13 +103,9 @@ def run_to_rows(
     pass1["pass_number"] = 1
     pass1["esi_predicted"] = run.pass1_esi
     pass1["esi_correct"] = (
-        run.pass1_esi == esi_ground_truth
-        if run.pass1_esi and esi_ground_truth
-        else None
+        run.pass1_esi == esi_ground_truth if run.pass1_esi and esi_ground_truth else None
     )
-    pass1["esi_direction_error"] = _esi_direction_error(
-        run.pass1_esi, esi_ground_truth
-    )
+    pass1["esi_direction_error"] = _esi_direction_error(run.pass1_esi, esi_ground_truth)
     pass1["raw_text"] = run.raw_text_pass1
 
     if run.pass1_delta_m:
@@ -144,13 +137,9 @@ def run_to_rows(
         pass2["pass_number"] = 2
         pass2["esi_predicted"] = run.pass2_esi
         pass2["esi_correct"] = (
-            run.pass2_esi == esi_ground_truth
-            if run.pass2_esi and esi_ground_truth
-            else None
+            run.pass2_esi == esi_ground_truth if run.pass2_esi and esi_ground_truth else None
         )
-        pass2["esi_direction_error"] = _esi_direction_error(
-            run.pass2_esi, esi_ground_truth
-        )
+        pass2["esi_direction_error"] = _esi_direction_error(run.pass2_esi, esi_ground_truth)
         pass2["raw_text"] = run.raw_text_pass2
 
         dm2 = run.pass2_delta_m
@@ -176,13 +165,9 @@ def run_to_rows(
             pass2["recovery_class"] = None
 
         # Distractor A
-        pass2["delta_m_pass3a"] = (
-            run.pass3a_delta_m.delta_m if run.pass3a_delta_m else None
-        )
+        pass2["delta_m_pass3a"] = run.pass3a_delta_m.delta_m if run.pass3a_delta_m else None
         pass2["esi_pass3a"] = run.pass3a_esi
-        pass2["crr_distractor_a"] = (
-            run.crr_distractor_a.crr if run.crr_distractor_a else None
-        )
+        pass2["crr_distractor_a"] = run.crr_distractor_a.crr if run.crr_distractor_a else None
         pass2["triage_changed_3a"] = (
             run.crr_distractor_a.triage_changed if run.crr_distractor_a else None
         )
@@ -192,13 +177,9 @@ def run_to_rows(
         pass2["raw_text_pass3a"] = run.raw_text_pass3a
 
         # Distractor B
-        pass2["delta_m_pass3b"] = (
-            run.pass3b_delta_m.delta_m if run.pass3b_delta_m else None
-        )
+        pass2["delta_m_pass3b"] = run.pass3b_delta_m.delta_m if run.pass3b_delta_m else None
         pass2["esi_pass3b"] = run.pass3b_esi
-        pass2["crr_distractor_b"] = (
-            run.crr_distractor_b.crr if run.crr_distractor_b else None
-        )
+        pass2["crr_distractor_b"] = run.crr_distractor_b.crr if run.crr_distractor_b else None
         pass2["triage_changed_3b"] = (
             run.crr_distractor_b.triage_changed if run.crr_distractor_b else None
         )
@@ -208,13 +189,9 @@ def run_to_rows(
         pass2["raw_text_pass3b"] = run.raw_text_pass3b
 
         # Distractor C
-        pass2["delta_m_pass3c"] = (
-            run.pass3c_delta_m.delta_m if run.pass3c_delta_m else None
-        )
+        pass2["delta_m_pass3c"] = run.pass3c_delta_m.delta_m if run.pass3c_delta_m else None
         pass2["esi_pass3c"] = run.pass3c_esi
-        pass2["crr_distractor_c"] = (
-            run.crr_distractor_c.crr if run.crr_distractor_c else None
-        )
+        pass2["crr_distractor_c"] = run.crr_distractor_c.crr if run.crr_distractor_c else None
         pass2["triage_changed_3c"] = (
             run.crr_distractor_c.triage_changed if run.crr_distractor_c else None
         )
@@ -236,9 +213,7 @@ def run_to_rows(
         max_dist = max(distractor_crrs) if distractor_crrs else None
         pass2["max_distractor_crr"] = max_dist
         pass2["crr_vs_distractor_gap"] = (
-            run.crr.crr - max_dist
-            if run.crr is not None and max_dist is not None
-            else None
+            run.crr.crr - max_dist if run.crr is not None and max_dist is not None else None
         )
 
         rows.append(pass2)
@@ -309,7 +284,8 @@ class BQWriter:
         if errors:
             logger.error(
                 "BigQuery insert errors (%d rows): %s",
-                len(self._buffer), errors,
+                len(self._buffer),
+                errors,
             )
             self.dlq_count += len(self._buffer)
             with self.dlq_path.open("a", encoding="utf-8") as f:
@@ -318,12 +294,16 @@ class BQWriter:
             logger.warning(
                 "Failed rows → DLQ: %s (%d rows). "
                 "Re-ingest: bq load --source_format=NEWLINE_DELIMITED_JSON %s %s",
-                self.dlq_path, len(self._buffer), RUNS_TABLE, self.dlq_path,
+                self.dlq_path,
+                len(self._buffer),
+                RUNS_TABLE,
+                self.dlq_path,
             )
         else:
             logger.info(
                 "BQWriter: flushed %d rows (experiment_id=%s)",
-                len(self._buffer), self.experiment_id,
+                len(self._buffer),
+                self.experiment_id,
             )
         self._buffer.clear()
 
@@ -358,16 +338,12 @@ class BQWriter:
             logger.error("Experiment registration failed: %s", errors)
             self.dlq_count += 1
             with self.dlq_path.open("a", encoding="utf-8") as f:
-                f.write(
-                    json.dumps(
-                        {"table": "experiments", "row": row}, default=str
-                    )
-                    + "\n"
-                )
+                f.write(json.dumps({"table": "experiments", "row": row}, default=str) + "\n")
         else:
             logger.info(
                 "Experiment registered: experiment_id=%s label='%s'",
-                self.experiment_id, label,
+                self.experiment_id,
+                label,
             )
 
     def __enter__(self) -> "BQWriter":
@@ -377,18 +353,20 @@ class BQWriter:
         self.flush()
         if self.dlq_count > 0:
             import sys
+
             print(
                 f"\n\033[91m\033[1mWARNING: {self.dlq_count} row(s) failed to insert into BigQuery.\033[0m\n"
                 f"These rows were saved to a dead-letter queue: \033[93m{self.dlq_path.absolute()}\033[0m\n"
                 f"To re-ingest them later, run:\n"
                 f"    \033[96mbq load --source_format=NEWLINE_DELIMITED_JSON {RUNS_TABLE} {self.dlq_path}\033[0m\n",
-                file=sys.stderr
+                file=sys.stderr,
             )
 
 
 def _safe_version(package: str) -> str | None:
     try:
         import importlib.metadata
+
         return importlib.metadata.version(package)
     except Exception:
         return None

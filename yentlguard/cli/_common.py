@@ -10,6 +10,7 @@ def _get_completed_vignettes(model: str, budget: str, variant: str) -> set[str]:
     # Retained for baseline.py / resumption use. cmd_run no longer calls this
     # because run_experiment iterates the full dataset.
     from google.cloud import bigquery
+
     from yentlguard.config import GCP_PROJECT_ID, RUNS_TABLE
 
     client = bigquery.Client(project=GCP_PROJECT_ID)
@@ -59,6 +60,7 @@ def _build_phoenix_components():
     expt_registry = PhoenixExperimentRegistry(base_url=base_url, api_key=api_key)
 
     return prompt_mgr, dataset_mgr, expt_registry
+
 
 def _extract_experiment_id(experiment) -> str | None:
     """Pull the Phoenix experiment id from a RanExperiment (object or dict)."""

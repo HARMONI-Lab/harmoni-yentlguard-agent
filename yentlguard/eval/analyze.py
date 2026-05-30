@@ -27,19 +27,20 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AnalysisResult:
     """Container for all computed summary tables from one analyze run."""
-    experiment_ids: list[str]
-    run_labels: dict[str, str]           # experiment_id → experiment label
 
-    overview: pd.DataFrame               # per experiment_id summary
-    h1_thinking_budget: pd.DataFrame     # H1: PSS vs budget
-    h2_tar_friction: pd.DataFrame        # H2: TAR by variant × category
-    h3_delta_m: pd.DataFrame             # H3: ΔM distribution
-    h4_crr: pd.DataFrame                 # H4: CRR by model × variant
-    cross_model: pd.DataFrame            # vignette-level pivot
-    gate_stats: pd.DataFrame             # gate fire rate
-    raw_pass1: pd.DataFrame              # full pass1 rows (for CSV)
-    raw_pass2: pd.DataFrame              # full pass2 rows (for CSV)
-    sycophancy: pd.DataFrame             # CRR vs distractor comparison
+    experiment_ids: list[str]
+    run_labels: dict[str, str]  # experiment_id → experiment label
+
+    overview: pd.DataFrame  # per experiment_id summary
+    h1_thinking_budget: pd.DataFrame  # H1: PSS vs budget
+    h2_tar_friction: pd.DataFrame  # H2: TAR by variant × category
+    h3_delta_m: pd.DataFrame  # H3: ΔM distribution
+    h4_crr: pd.DataFrame  # H4: CRR by model × variant
+    cross_model: pd.DataFrame  # vignette-level pivot
+    gate_stats: pd.DataFrame  # gate fire rate
+    raw_pass1: pd.DataFrame  # full pass1 rows (for CSV)
+    raw_pass2: pd.DataFrame  # full pass2 rows (for CSV)
+    sycophancy: pd.DataFrame  # CRR vs distractor comparison
     errors: list[str] = field(default_factory=list)
 
 
@@ -70,8 +71,8 @@ class Analyzer:
         logger.info("Analyzing %d experiment_id(s): %s", len(experiment_ids), experiment_ids)
 
         run_labels = self._fetch_run_labels(experiment_ids)
-        raw_pass1  = self._fetch_raw(experiment_ids, pass_number=1)
-        raw_pass2  = self._fetch_raw(experiment_ids, pass_number=2)
+        raw_pass1 = self._fetch_raw(experiment_ids, pass_number=1)
+        raw_pass2 = self._fetch_raw(experiment_ids, pass_number=2)
 
         return AnalysisResult(
             experiment_ids=experiment_ids,

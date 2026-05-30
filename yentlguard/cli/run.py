@@ -43,10 +43,7 @@ def cmd_run(args: argparse.Namespace) -> str:
         )
         return ""
 
-    row_by_id = {
-        str(int(r["source_stay_id"])): r.to_dict()
-        for _, r in df_all.iterrows()
-    }
+    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
 
     experiment_ids: list[str] = []
 
@@ -92,9 +89,7 @@ def cmd_run(args: argparse.Namespace) -> str:
                     # this task's spans to the experiment run natively.
                 )
                 esi_gt = (
-                    str(int(vignette["acuity"]))
-                    if not _pd.isna(vignette.get("acuity"))
-                    else None
+                    str(int(vignette["acuity"])) if not _pd.isna(vignette.get("acuity")) else None
                 )
                 clinical_cat = str(vignette.get("chiefcomplaint", "")) or None
                 with lock:
@@ -112,7 +107,6 @@ def cmd_run(args: argparse.Namespace) -> str:
                 dataset=dataset,
                 task=task,
                 experiment_name=label,
-                concurrency=getattr(args, "concurrency", 4),
             )
 
             # Phoenix experiment id — now available. Tag BQ with the SAME id.
@@ -137,7 +131,9 @@ def cmd_run(args: argparse.Namespace) -> str:
 
             logger.info(
                 "Finished %s (phoenix id=%s, %d BQ rows)",
-                label, phoenix_id, len(collected),
+                label,
+                phoenix_id,
+                len(collected),
             )
 
     if provider is not None and hasattr(provider, "force_flush"):
@@ -150,6 +146,7 @@ def cmd_run(args: argparse.Namespace) -> str:
 
     logger.info(
         "Run complete. %d experiment(s): %s",
-        len(experiment_ids), ", ".join(experiment_ids),
+        len(experiment_ids),
+        ", ".join(experiment_ids),
     )
     return ",".join(experiment_ids)

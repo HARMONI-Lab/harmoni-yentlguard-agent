@@ -33,9 +33,7 @@ def push_default_prompts() -> None:
     mgr = PhoenixPromptManager()
 
     if not mgr._available:
-        logger.error(
-            "Phoenix is not reachable. Check PHOENIX_BASE_URL and PHOENIX_API_KEY."
-        )
+        logger.error("Phoenix is not reachable. Check PHOENIX_BASE_URL and PHOENIX_API_KEY.")
         sys.exit(1)
 
     logger.info("Pushing default prompt versions to Phoenix...")
@@ -67,15 +65,11 @@ def push_corpus(dataset_path: str) -> None:
         if vdf.empty:
             logger.info("  variant=%s: 0 rows — skipping", variant)
             continue
-        vdf["vignette_text"] = vdf.apply(
-            lambda r: build_prompt(r.to_dict(), variant), axis=1
-        )
+        vdf["vignette_text"] = vdf.apply(lambda r: build_prompt(r.to_dict(), variant), axis=1)
         vdf["esi_ground_truth"] = vdf["acuity"].apply(
             lambda v: str(int(v)) if pd.notna(v) else None
         )
-        vdf["clinical_category"] = (
-            vdf.get("chiefcomplaint", pd.Series(dtype=str)).fillna("")
-        )
+        vdf["clinical_category"] = vdf.get("chiefcomplaint", pd.Series(dtype=str)).fillna("")
         vdf["source_stay_id"] = vdf["source_stay_id"].astype(str)
         vdf["demographic_variant"] = variant
         rows.append(
@@ -111,6 +105,7 @@ def push_corpus(dataset_path: str) -> None:
 
 def main() -> None:
     from dotenv import load_dotenv
+
     load_dotenv()
 
     parser = argparse.ArgumentParser(

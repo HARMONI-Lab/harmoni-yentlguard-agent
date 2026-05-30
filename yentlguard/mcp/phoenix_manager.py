@@ -127,10 +127,7 @@ class PhoenixPromptManager:
         base_url: str | None = None,
         api_key: str | None = None,
     ):
-        self._base_url = (
-            base_url
-            or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
-        )
+        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
         self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
         self._client = None
         self._cache: dict[str, str] = {}
@@ -140,6 +137,7 @@ class PhoenixPromptManager:
     def _init_client(self) -> None:
         try:
             from phoenix.client import Client
+
             self._client = Client(
                 base_url=self._base_url,
                 api_key=self._api_key,
@@ -199,9 +197,9 @@ class PhoenixPromptManager:
                 return template
         except Exception as e:
             logger.warning(
-                "PhoenixPromptManager: could not fetch '%s' from Phoenix (%s). "
-                "Using default.",
-                name, e,
+                "PhoenixPromptManager: could not fetch '%s' from Phoenix (%s). Using default.",
+                name,
+                e,
             )
 
         return _DEFAULTS[name]
@@ -218,10 +216,7 @@ class PhoenixPromptManager:
             if hasattr(prompt, "template") and hasattr(prompt.template, "messages"):
                 messages = prompt.template.messages
                 if messages:
-                    user_msgs = [
-                        m for m in messages
-                        if getattr(m, "role", "") == "user"
-                    ]
+                    user_msgs = [m for m in messages if getattr(m, "role", "") == "user"]
                     if user_msgs:
                         content = user_msgs[-1].content
                         if isinstance(content, str):
@@ -288,17 +283,12 @@ class PhoenixPromptManager:
 
             if tag and new_version.id:
                 try:
-                    self._client.prompts.tags.create(
-                        prompt_version_id=new_version.id,
-                        name=tag
-                    )
+                    self._client.prompts.tags.create(prompt_version_id=new_version.id, name=tag)
                 except Exception as tag_err:
                     logger.warning("Failed to tag prompt '%s' with '%s': %s", name, tag, tag_err)
 
             self._cache.pop(name, None)
-            logger.info(
-                "Pushed prompt '%s' to Phoenix as '%s'", name, phoenix_name
-            )
+            logger.info("Pushed prompt '%s' to Phoenix as '%s'", name, phoenix_name)
             return True
         except Exception as e:
             logger.warning("Prompt push failed for '%s': %s", name, e)
@@ -346,10 +336,7 @@ class PhoenixDatasetManager:
         api_key: str | None = None,
         corpus_dataset_name: str = _CORPUS_DATASET_NAME,
     ):
-        self._base_url = (
-            base_url
-            or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
-        )
+        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
         self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
         self._corpus_dataset_name = corpus_dataset_name
         self._client = None
@@ -361,6 +348,7 @@ class PhoenixDatasetManager:
     def _init_client(self) -> None:
         try:
             from phoenix.client import Client
+
             self._client = Client(
                 base_url=self._base_url,
                 api_key=self._api_key,
@@ -392,21 +380,21 @@ class PhoenixDatasetManager:
             for ds in datasets:
                 # Try different ways to get the dataset name
                 name = None
-                if hasattr(ds, 'name'):
-                    name = getattr(ds, 'name', None)
-                elif isinstance(ds, dict) and 'name' in ds:
-                    name = ds['name']
-                
+                if hasattr(ds, "name"):
+                    name = getattr(ds, "name", None)
+                elif isinstance(ds, dict) and "name" in ds:
+                    name = ds["name"]
+
                 if name:
                     dataset_names.append(name)
                     if name == self._corpus_dataset_name:
                         # Get the dataset ID
                         dataset_id = None
-                        if hasattr(ds, 'id'):
-                            dataset_id = str(getattr(ds, 'id', ds))
-                        elif isinstance(ds, dict) and 'id' in ds:
-                            dataset_id = str(ds['id'])
-                        
+                        if hasattr(ds, "id"):
+                            dataset_id = str(getattr(ds, "id", ds))
+                        elif isinstance(ds, dict) and "id" in ds:
+                            dataset_id = str(ds["id"])
+
                         if dataset_id:
                             self.dataset_id = dataset_id
                             logger.info(
@@ -417,7 +405,7 @@ class PhoenixDatasetManager:
                             return self.dataset_id
                 else:
                     dataset_names.append("unnamed")
-            
+
             logger.warning(
                 "PhoenixDatasetManager: corpus dataset '%s' not found in Phoenix. "
                 "Run setup_phoenix.py --dataset <path> to upload it first. "
@@ -426,9 +414,7 @@ class PhoenixDatasetManager:
                 dataset_names,
             )
         except Exception as e:
-            logger.warning(
-                "PhoenixDatasetManager: dataset list failed (%s).", e
-            )
+            logger.warning("PhoenixDatasetManager: dataset list failed (%s).", e)
         return None
 
     def get_vignettes_df(self) -> pd.DataFrame:
@@ -484,7 +470,9 @@ class PhoenixDatasetManager:
                         flat.update(ex["metadata"])
                     # Add any other top-level fields
                     for key, value in ex.items():
-                        if key not in ("input", "output", "metadata") and not isinstance(value, (dict, list)):
+                        if key not in ("input", "output", "metadata") and not isinstance(
+                            value, (dict, list)
+                        ):
                             flat[key] = value
                     rows.append(flat)
 
@@ -517,9 +505,7 @@ class PhoenixDatasetManager:
             return df
 
         except Exception as e:
-            logger.error(
-                "PhoenixDatasetManager: get_vignettes_df failed (%s).", e
-            )
+            logger.error("PhoenixDatasetManager: get_vignettes_df failed (%s).", e)
             return pd.DataFrame()
 
     def push_vignette_corpus(
@@ -544,14 +530,15 @@ class PhoenixDatasetManager:
             return None
 
         required_cols = {
-            "source_stay_id", "vignette_text", "demographic_variant",
-            "clinical_category", "esi_ground_truth",
+            "source_stay_id",
+            "vignette_text",
+            "demographic_variant",
+            "clinical_category",
+            "esi_ground_truth",
         }
         missing = required_cols - set(df.columns)
         if missing:
-            logger.error(
-                "push_vignette_corpus: DataFrame missing columns %s", missing
-            )
+            logger.error("push_vignette_corpus: DataFrame missing columns %s", missing)
             return None
 
         try:
@@ -568,7 +555,9 @@ class PhoenixDatasetManager:
             self._corpus_dataset_name = dataset_name
             logger.info(
                 "Pushed vignette corpus to Phoenix dataset '%s' (id=%s, %d rows)",
-                dataset_name, self.dataset_id, len(df),
+                dataset_name,
+                self.dataset_id,
+                len(df),
             )
             return self.dataset_id
         except Exception as e:
@@ -610,9 +599,7 @@ class PhoenixDatasetManager:
         ].copy()
 
         if subset.empty:
-            logger.warning(
-                "push_anomaly_subset: no rows matched vignette_ids=%s", vignette_ids[:5]
-            )
+            logger.warning("push_anomaly_subset: no rows matched vignette_ids=%s", vignette_ids[:5])
             return None
 
         dataset_name = f"yentlguard-{reason}-{experiment_id[:8]}"
@@ -628,7 +615,9 @@ class PhoenixDatasetManager:
             dataset_id = getattr(dataset, "id", None) or str(dataset)
             logger.info(
                 "Pushed anomaly subset '%s' to Phoenix (id=%s, %d vignettes)",
-                dataset_name, dataset_id, len(subset),
+                dataset_name,
+                dataset_id,
+                len(subset),
             )
             return str(dataset_id)
         except Exception as e:
@@ -650,10 +639,7 @@ class PhoenixExperimentRegistry:
         base_url: str | None = None,
         api_key: str | None = None,
     ):
-        self._base_url = (
-            base_url
-            or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
-        )
+        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
         self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
         self._client = None
         self._available = False
@@ -662,6 +648,7 @@ class PhoenixExperimentRegistry:
     def _init_client(self) -> None:
         try:
             from phoenix.client import Client
+
             self._client = Client(
                 base_url=self._base_url,
                 api_key=self._api_key,
@@ -721,7 +708,8 @@ class PhoenixExperimentRegistry:
                 experiment_id = str(getattr(experiment, "id", None) or experiment)
             logger.info(
                 "Registered Phoenix experiment '%s' (id=%s)",
-                label, experiment_id,
+                label,
+                experiment_id,
             )
             return experiment_id
         except Exception as e:
@@ -763,6 +751,7 @@ def annotate_span_with_verdict(
 
     try:
         from phoenix.client import Client
+
         client = Client(base_url=_base_url, api_key=_api_key)
         client.spans.annotate(
             span_id=span_id,
@@ -774,7 +763,11 @@ def annotate_span_with_verdict(
         )
         logger.info(
             "Annotated span %s (vignette=%s) with verdict=%s crr=%.4f gap=%.4f",
-            span_id, vignette_id, sycophancy_verdict, crr, crr_vs_distractor_gap,
+            span_id,
+            vignette_id,
+            sycophancy_verdict,
+            crr,
+            crr_vs_distractor_gap,
         )
         return True
     except Exception as e:

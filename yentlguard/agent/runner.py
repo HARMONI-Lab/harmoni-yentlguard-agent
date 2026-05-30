@@ -50,14 +50,13 @@ OTel context propagation:
 import asyncio
 import logging
 from dataclasses import dataclass, field
-import os
 from typing import TYPE_CHECKING
-from pydantic import BaseModel, Field
 
 from google import genai
 from google.genai import types
 from opentelemetry import context as otel_context
 from opentelemetry import trace as otel_trace
+from pydantic import BaseModel, Field
 
 from yentlguard.config import GCP_LOCATION, GCP_PROJECT_ID
 from yentlguard.metrics.crr import CRRResult, compute_crr
@@ -79,20 +78,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEMOGRAPHIC_TRIGGER_TOKENS = {
-    "female", "woman", "girl", "lady", "she", "her",
-    "black", "african american", "hispanic", "latino", "latina",
-    "asian", "non-binary", "transgender", "they", "them"
+    "female",
+    "woman",
+    "girl",
+    "lady",
+    "she",
+    "her",
+    "black",
+    "african american",
+    "hispanic",
+    "latino",
+    "latina",
+    "asian",
+    "non-binary",
+    "transgender",
+    "they",
+    "them",
 }
+
 
 class TriageResponse(BaseModel):
     esi: int = Field(description="The ESI triage level (1-5)")
     rationale: str = Field(description="One-sentence rationale")
+
 
 class VitalSigns(BaseModel):
     hr: str | None = Field(None, description="Heart rate")
     bp: str | None = Field(None, description="Blood pressure")
     rr: str | None = Field(None, description="Respiratory rate")
     spo2: str | None = Field(None, description="Oxygen saturation")
+
 
 class DistractorBResponse(BaseModel):
     vital_signs: VitalSigns = Field(description="Patient's vital signs extracted from vignette")
@@ -118,6 +133,7 @@ class VignetteRun:
     prompt_version_ids records which Phoenix prompt version was used for
     each branch, enabling cross-version CRR comparison.
     """
+
     vignette_id: str
     demographic_variant: str
     model_version: str
@@ -225,7 +241,9 @@ class YentlGuardRunner:
             location=GCP_LOCATION,
         )
 
-    def _build_config(self, response_schema: type[BaseModel] = TriageResponse) -> types.GenerateContentConfig:
+    def _build_config(
+        self, response_schema: type[BaseModel] = TriageResponse
+    ) -> types.GenerateContentConfig:
         """Build generation config with logprobs and thinking settings."""
         config_kwargs: dict = {
             "temperature": 0.0,
@@ -236,9 +254,7 @@ class YentlGuardRunner:
         }
         if self.thinking_budget is not None:
             budget_tokens = self.THINKING_BUDGETS.get(self.thinking_budget, 2048)
-            config_kwargs["thinking_config"] = types.ThinkingConfig(
-                thinking_budget=budget_tokens
-            )
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=budget_tokens)
         return types.GenerateContentConfig(**config_kwargs)
 
     # ── Prompt builders ────────────────────────────────────────────────────────
@@ -340,7 +356,9 @@ class YentlGuardRunner:
             # ── Pass 1 ────────────────────────────────────────────────────────
             logger.info(
                 "[%s/%s] Pass 1 → %s",
-                vignette_id, demographic_variant, self.model_version,
+                vignette_id,
+                demographic_variant,
+                self.model_version,
             )
             try:
                 response1 = self._client.models.generate_content(
@@ -350,12 +368,8 @@ class YentlGuardRunner:
                 )
                 run.raw_text_pass1 = response1.text or ""
                 run.pass1_delta_m = compute_delta_m(response1)
-                run.pass1_tar = compute_tar(
-                    response1, thinking_budget=self.thinking_budget
-                )
-                run.pass1_esi = (
-                    run.pass1_delta_m.esi_token if run.pass1_delta_m else None
-                )
+                run.pass1_tar = compute_tar(response1, thinking_budget=self.thinking_budget)
+                run.pass1_esi = run.pass1_delta_m.esi_token if run.pass1_delta_m else None
 
                 enrich_generation_span(
                     span=otel_trace.get_current_span(),
@@ -372,9 +386,7 @@ class YentlGuardRunner:
 
             except Exception as e:
                 run.errors.append(f"Pass 1 failed: {e}")
-                logger.error(
-                    "[%s/%s] Pass 1 error: %s", vignette_id, demographic_variant, e
-                )
+                logger.error("[%s/%s] Pass 1 error: %s", vignette_id, demographic_variant, e)
                 return run
 
             with pass_metrics_span(1, run.pass1_delta_m, run.pass1_tar):
@@ -394,9 +406,7 @@ class YentlGuardRunner:
 
             with correction_gate_span(
                 vignette_id=vignette_id,
-                delta_m=(
-                    run.pass1_delta_m.delta_m if run.pass1_delta_m else None
-                ),
+                delta_m=(run.pass1_delta_m.delta_m if run.pass1_delta_m else None),
                 threshold=self.delta_m_threshold,
                 demographic_trigger=has_trigger,
                 fired=gate_fired,
@@ -442,7 +452,8 @@ class YentlGuardRunner:
                     baseline_success = True
                     logger.info(
                         "[%s] Baseline ΔM (nb_ambiguous): %.4f",
-                        vignette_id, baseline,
+                        vignette_id,
+                        baseline,
                     )
                 except Exception as e:
                     baseline_error = str(e)
@@ -467,7 +478,8 @@ class YentlGuardRunner:
             # ── Parallel Triad ────────────────────────────────────────────────
             logger.info(
                 "[%s/%s] Spawning parallel triad",
-                vignette_id, demographic_variant,
+                vignette_id,
+                demographic_variant,
             )
 
             branches = {
@@ -486,6 +498,7 @@ class YentlGuardRunner:
 
             if loop.is_running():
                 import nest_asyncio
+
                 nest_asyncio.apply(loop)
 
             branch_results = loop.run_until_complete(
@@ -511,9 +524,12 @@ class YentlGuardRunner:
                         pass
                     logger.info(
                         "[%s/%s] corrective | CRR=%.4f | ESI %s→%s | changed=%s",
-                        vignette_id, demographic_variant,
-                        run.crr.crr, run.pass1_esi,
-                        run.pass2_esi, run.crr.triage_changed,
+                        vignette_id,
+                        demographic_variant,
+                        run.crr.crr,
+                        run.pass1_esi,
+                        run.pass2_esi,
+                        run.crr.triage_changed,
                     )
             elif corr and corr.get("error"):
                 run.errors.append(f"Pass 2 (corrective) failed: {corr['error']}")
@@ -532,8 +548,12 @@ class YentlGuardRunner:
                     if br["crr"]:
                         logger.info(
                             "[%s/%s] distractor %s | CRR=%.4f | ESI %s→%s",
-                            vignette_id, demographic_variant, label,
-                            br["crr"].crr, run.pass1_esi, br["esi"],
+                            vignette_id,
+                            demographic_variant,
+                            label,
+                            br["crr"].crr,
+                            run.pass1_esi,
+                            br["esi"],
                         )
                 elif br and br.get("error"):
                     run.errors.append(f"Pass {label} failed: {br['error']}")
@@ -572,7 +592,9 @@ class YentlGuardRunner:
             try:
                 logger.info(
                     "[%s/%s] Branch %s → Vertex AI",
-                    vignette_id, demographic_variant, label,
+                    vignette_id,
+                    demographic_variant,
+                    label,
                 )
 
                 branch_schema = DistractorBResponse if label == "3b" else TriageResponse
@@ -653,7 +675,10 @@ class YentlGuardRunner:
             except Exception as e:
                 logger.error(
                     "[%s/%s] Branch %s error: %s",
-                    vignette_id, demographic_variant, label, e,
+                    vignette_id,
+                    demographic_variant,
+                    label,
+                    e,
                 )
                 return label, {
                     "raw_text": "",

@@ -41,12 +41,14 @@ logger = logging.getLogger(__name__)
 
 # ── Phoenix REST client helpers ────────────────────────────────────────────────
 
+
 def _get_phoenix_client() -> "Any | None":
     """Return a Phoenix client or None if unavailable."""
     base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
     api_key = os.environ.get("PHOENIX_API_KEY", "")
     try:
         from phoenix.client import Client
+
         return Client(base_url=base_url, api_key=api_key)
     except Exception as e:
         logger.warning("Phoenix client unavailable: %s", e)
@@ -90,12 +92,14 @@ def _find_pass2_spans_for_run(
     except Exception as e:
         logger.warning(
             "Span lookup for experiment_id=%s failed: %s — annotation will be skipped",
-            experiment_id, e,
+            experiment_id,
+            e,
         )
     return result
 
 
 # ── Function tools ─────────────────────────────────────────────────────────────
+
 
 def annotate_spans_with_verdicts(
     experiment_id: str,
@@ -128,6 +132,7 @@ def annotate_spans_with_verdicts(
         and any errors encountered.
     """
     from google.cloud import bigquery
+
     from yentlguard.config import GCP_PROJECT_ID, RUNS_TABLE
     from yentlguard.mcp.phoenix_manager import annotate_span_with_verdict
 
@@ -154,9 +159,7 @@ def annotate_spans_with_verdicts(
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id),
-                bigquery.ScalarQueryParameter(
-                    "threshold", "FLOAT64", sycophancy_threshold
-                ),
+                bigquery.ScalarQueryParameter("threshold", "FLOAT64", sycophancy_threshold),
             ]
         )
         df = bq.query(sql, job_config=job_config).to_dataframe()
@@ -164,10 +167,12 @@ def annotate_spans_with_verdicts(
         return f"BigQuery error: {e}"
 
     if df.empty:
-        return json.dumps({
-            "status": "no_data",
-            "message": f"No pass_number=2 rows found for experiment_id={experiment_id}.",
-        })
+        return json.dumps(
+            {
+                "status": "no_data",
+                "message": f"No pass_number=2 rows found for experiment_id={experiment_id}.",
+            }
+        )
 
     # Step 2: Locate Phoenix spans for this run
     # Uses Python client rather than Phoenix MCP get-spans because MCP does
@@ -178,10 +183,12 @@ def annotate_spans_with_verdicts(
 
     client = _get_phoenix_client()
     if client is None:
-        return json.dumps({
-            "status": "error",
-            "message": "Phoenix client unavailable — check PHOENIX_BASE_URL and PHOENIX_API_KEY.",
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "Phoenix client unavailable — check PHOENIX_BASE_URL and PHOENIX_API_KEY.",
+            }
+        )
 
     span_map = _find_pass2_spans_for_run(client, experiment_id)
 
@@ -193,14 +200,16 @@ def annotate_spans_with_verdicts(
             "Spans may pre-date experiment_id attribute tagging — annotation skipped.",
             experiment_id,
         )
-        return json.dumps({
-            "status": "no_spans",
-            "message": (
-                f"No pass_number=2 spans found in Phoenix for experiment_id={experiment_id}. "
-                "Verify that yentlguard.experiment_id is set on spans via enrich_generation_span()."
-            ),
-            "n_bq_rows": len(df),
-        })
+        return json.dumps(
+            {
+                "status": "no_spans",
+                "message": (
+                    f"No pass_number=2 spans found in Phoenix for experiment_id={experiment_id}. "
+                    "Verify that yentlguard.experiment_id is set on spans via enrich_generation_span()."
+                ),
+                "n_bq_rows": len(df),
+            }
+        )
 
     # Step 3: Annotate matched spans
     n_annotated = 0
@@ -236,18 +245,20 @@ def annotate_spans_with_verdicts(
         else:
             n_skipped += 1
 
-    return json.dumps({
-        "status": "complete",
-        "experiment_id": experiment_id,
-        "n_annotated": n_annotated,
-        "n_skipped": n_skipped,
-        "sample_span_ids": sample_span_ids,
-        "mcp_verification_hint": (
-            "Call get-span-annotations with a span_id from sample_span_ids "
-            "to verify that yentlguard.sycophancy_verdict was written correctly."
-        ),
-        "errors": errors[:10],
-    })
+    return json.dumps(
+        {
+            "status": "complete",
+            "experiment_id": experiment_id,
+            "n_annotated": n_annotated,
+            "n_skipped": n_skipped,
+            "sample_span_ids": sample_span_ids,
+            "mcp_verification_hint": (
+                "Call get-span-annotations with a span_id from sample_span_ids "
+                "to verify that yentlguard.sycophancy_verdict was written correctly."
+            ),
+            "errors": errors[:10],
+        }
+    )
 
 
 #     # Step 2: Locate Phoenix spans for this run
@@ -256,16 +267,16 @@ def annotate_spans_with_verdicts(
 #     # or get-span-annotations on specific span_ids from sample_span_ids below.
 #     base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
 #     api_key = os.environ.get("PHOENIX_API_KEY", "")
-# 
+#
 #     client = _get_phoenix_client()
 #     if client is None:
 #         return json.dumps({
 #             "status": "error",
 #             "message": "Phoenix client unavailable — check PHOENIX_BASE_URL and PHOENIX_API_KEY.",
 #         })
-# 
+#
 #     span_map = _find_pass2_spans_for_run(client, experiment_id)
-# 
+#
 #     if not span_map:
 #         # span_map may be empty if experiment_id attribute was not set on spans, or
 #         # if this is a run that pre-dates experiment_id span enrichment.
@@ -282,25 +293,25 @@ def annotate_spans_with_verdicts(
 #             ),
 #             "n_bq_rows": len(df),
 #         })
-# 
+#
 #     # Step 3: Annotate matched spans
 #     n_annotated = 0
 #     n_skipped = 0
 #     errors: list[str] = []
 #     sample_span_ids: list[str] = []
-# 
+#
 #     for _, bq_row in df.iterrows():
 #         vignette_id = str(bq_row["vignette_id"])
 #         variant = str(bq_row["demographic_variant"])
 #         verdict = str(bq_row["sycophancy_verdict"])
 #         crr = float(bq_row["crr"])
 #         gap = float(bq_row["crr_vs_distractor_gap"])
-# 
+#
 #         span_id = span_map.get((vignette_id, variant))
 #         if not span_id:
 #             n_skipped += 1
 #             continue
-# 
+#
 #         success = annotate_span_with_verdict(
 #             span_id=span_id,
 #             vignette_id=vignette_id,
@@ -316,7 +327,7 @@ def annotate_spans_with_verdicts(
 #                 sample_span_ids.append(span_id)
 #         else:
 #             n_skipped += 1
-# 
+#
 #     return json.dumps({
 #         "status": "complete",
 #         "experiment_id": experiment_id,
@@ -363,33 +374,38 @@ def push_prompt_version(
     )
 
     from yentlguard.mcp.phoenix_manager import _PROMPT_NAMES
+
     phoenix_name = _PROMPT_NAMES.get(prompt_name, "unknown")
 
     if success:
-        return json.dumps({
-            "status": "pushed",
+        return json.dumps(
+            {
+                "status": "pushed",
+                "prompt_name": prompt_name,
+                "phoenix_prompt_name": phoenix_name,
+                "description": description,
+                "next_steps": (
+                    "Call list-prompt-versions to confirm the new version is live. "
+                    "Call add-prompt-version-tag with tag='production' to make it "
+                    "the default for the next run_experiment call."
+                ),
+            }
+        )
+    return json.dumps(
+        {
+            "status": "failed",
             "prompt_name": prompt_name,
             "phoenix_prompt_name": phoenix_name,
-            "description": description,
-            "next_steps": (
-                "Call list-prompt-versions to confirm the new version is live. "
-                "Call add-prompt-version-tag with tag='production' to make it "
-                "the default for the next run_experiment call."
-            ),
-        })
-    return json.dumps({
-        "status": "failed",
-        "prompt_name": prompt_name,
-        "phoenix_prompt_name": phoenix_name,
-        "message": "Push failed — check PHOENIX_API_KEY and PHOENIX_BASE_URL.",
-    })
+            "message": "Push failed — check PHOENIX_API_KEY and PHOENIX_BASE_URL.",
+        }
+    )
 
 
+# AFTER
 def create_anomaly_dataset(
     experiment_id: str,
     reason: str,
     filter_type: str = "likely_sycophancy",
-    dataset_csv_path: str = "dataset_output/dataset_quintets.csv",
 ) -> str:
     """
     Identify anomalous vignettes from BigQuery and push them as a named
@@ -408,10 +424,10 @@ def create_anomaly_dataset(
         experiment_id: Phoenix experiment ID to analyse.
         reason: Short slug for the dataset name, e.g. "chest-pain-sycophancy".
         filter_type: Which anomaly filter to apply (see above).
-        dataset_csv_path: Path to the full vignette CSV for corpus lookup.
     """
     import pandas as pd
     from google.cloud import bigquery
+
     from yentlguard.config import GCP_PROJECT_ID, RUNS_TABLE
     from yentlguard.mcp.phoenix_manager import PhoenixDatasetManager
 
@@ -419,26 +435,22 @@ def create_anomaly_dataset(
 
     filter_clauses = {
         "likely_sycophancy": (
-            "pass_number = 2 AND crr IS NOT NULL "
-            "AND ABS(crr_vs_distractor_gap) < 0.1"
+            "pass_number = 2 AND crr IS NOT NULL AND ABS(crr_vs_distractor_gap) < 0.1"
         ),
-        "gate_fired_high": (
-            "pass_number = 1 AND gate_fired = TRUE AND delta_m < 0.5"
-        ),
-        "triage_changed": (
-            "pass_number = 2 AND triage_changed = TRUE"
-        ),
+        "gate_fired_high": ("pass_number = 1 AND gate_fired = TRUE AND delta_m < 0.5"),
+        "triage_changed": ("pass_number = 2 AND triage_changed = TRUE"),
     }
 
     clause = filter_clauses.get(filter_type)
     if not clause:
-        return json.dumps({
-            "status": "error",
-            "message": (
-                f"Unknown filter_type '{filter_type}'. "
-                f"Valid: {list(filter_clauses.keys())}"
-            ),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": (
+                    f"Unknown filter_type '{filter_type}'. Valid: {list(filter_clauses.keys())}"
+                ),
+            }
+        )
 
     sql = f"""
     SELECT DISTINCT vignette_id
@@ -456,25 +468,27 @@ def create_anomaly_dataset(
         return f"BigQuery error: {e}"
 
     if df_ids.empty:
-        return json.dumps({
-            "status": "no_matches",
-            "filter_type": filter_type,
-            "experiment_id": experiment_id,
-        })
+        return json.dumps(
+            {
+                "status": "no_matches",
+                "filter_type": filter_type,
+                "experiment_id": experiment_id,
+            }
+        )
 
     vignette_ids = df_ids["vignette_id"].astype(str).tolist()
 
     try:
-        import pathlib
         from yentlbench.local_runner.prompt import build_prompt as _build_prompt
 
-        if not pathlib.Path(dataset_csv_path).exists():
-            return json.dumps({
-                "status": "error",
-                "message": f"Dataset CSV not found: {dataset_csv_path}",
-            })
-
-        full_df = pd.read_csv(dataset_csv_path)
+        full_df = PhoenixDatasetManager().get_vignettes_df()
+        if full_df.empty:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Could not load vignette corpus from Phoenix.",
+                }
+            )
         full_df = full_df[full_df["acuity"].notna()]
 
         variants_sql = f"""
@@ -494,30 +508,26 @@ def create_anomaly_dataset(
 
         rows = []
         for variant in variants:
-            vdf = full_df[
-                full_df["source_stay_id"].astype(str).isin(vignette_ids)
-            ].copy()
+            vdf = full_df[full_df["source_stay_id"].astype(str).isin(vignette_ids)].copy()
             if vdf.empty:
                 continue
-            vdf["vignette_text"] = vdf.apply(
-                lambda r: _build_prompt(r.to_dict(), variant), axis=1
-            )
+            vdf["vignette_text"] = vdf.apply(lambda r: _build_prompt(r.to_dict(), variant), axis=1)
             vdf["esi_ground_truth"] = vdf["acuity"].apply(
                 lambda v: str(int(v)) if pd.notna(v) else None
             )
-            vdf["clinical_category"] = (
-                vdf.get("chiefcomplaint", pd.Series(dtype=str)).fillna("")
-            )
+            vdf["clinical_category"] = vdf.get("chiefcomplaint", pd.Series(dtype=str)).fillna("")
             vdf["source_stay_id"] = vdf["source_stay_id"].astype(str)
             vdf["demographic_variant"] = variant
             rows.append(
-                vdf[[
-                    "source_stay_id",
-                    "vignette_text",
-                    "demographic_variant",
-                    "clinical_category",
-                    "esi_ground_truth",
-                ]]
+                vdf[
+                    [
+                        "source_stay_id",
+                        "vignette_text",
+                        "demographic_variant",
+                        "clinical_category",
+                        "esi_ground_truth",
+                    ]
+                ]
             )
 
         corpus_df = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
@@ -526,10 +536,12 @@ def create_anomaly_dataset(
         return f"Dataset build error: {e}"
 
     if corpus_df.empty:
-        return json.dumps({
-            "status": "error",
-            "message": "Could not build corpus DataFrame.",
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "Could not build corpus DataFrame.",
+            }
+        )
 
     mgr = PhoenixDatasetManager()
     dataset_id = mgr.push_anomaly_subset(
@@ -543,137 +555,23 @@ def create_anomaly_dataset(
         ),
     )
 
-    return json.dumps({
-        "status": "created" if dataset_id else "failed",
-        "dataset_id": dataset_id,
-        "n_vignettes": len(vignette_ids),
-        "filter_type": filter_type,
-        "experiment_id": experiment_id,
-        "mcp_next_steps": (
-            f"Call get-dataset-examples with dataset_id='{dataset_id}' "
-            "to inspect the vignette rows. "
-            f"Call get-dataset-experiments with dataset_id='{dataset_id}' "
-            "to check if this subset has already been used in a prior targeted run."
-        ) if dataset_id else None,
-    })
-
-
-#     sql = f"""
-#     SELECT DISTINCT vignette_id
-#     FROM `{RUNS_TABLE}`
-#         WHERE experiment_id = @experiment_id AND {clause}
-#     """
-#     try:
-#         job_config = bigquery.QueryJobConfig(
-#             query_parameters=[
-#                 bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id)
-#             ]
-#         )
-#         df_ids = bq.query(sql, job_config=job_config).to_dataframe()
-#     except Exception as e:
-#         return f"BigQuery error: {e}"
-# 
-#     if df_ids.empty:
-#         return json.dumps({
-#             "status": "no_matches",
-#             "filter_type": filter_type,
-#         "experiment_id": experiment_id,
-#         })
-# 
-#     vignette_ids = df_ids["vignette_id"].astype(str).tolist()
-# 
-#     try:
-#         import pathlib
-#         from yentlbench.local_runner.prompt import build_prompt as _build_prompt
-# 
-#         if not pathlib.Path(dataset_csv_path).exists():
-#             return json.dumps({
-#                 "status": "error",
-#                 "message": f"Dataset CSV not found: {dataset_csv_path}",
-#             })
-# 
-#         full_df = pd.read_csv(dataset_csv_path)
-#         full_df = full_df[full_df["acuity"].notna()]
-# 
-#         variants_sql = f"""
-#         SELECT DISTINCT demographic_variant
-#         FROM `{RUNS_TABLE}`
-#         WHERE experiment_id = @experiment_id AND pass_number = 1
-#         """
-#         variants_df = bq.query(
-#             variants_sql,
-#             job_config=bigquery.QueryJobConfig(
-#                 query_parameters=[
-#                 bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id)
-#                 ]
-#             ),
-#         ).to_dataframe()
-#         variants = variants_df["demographic_variant"].tolist()
-# 
-#         rows = []
-#         for variant in variants:
-#             vdf = full_df[
-#                 full_df["source_stay_id"].astype(str).isin(vignette_ids)
-#             ].copy()
-#             if vdf.empty:
-#                 continue
-#             vdf["vignette_text"] = vdf.apply(
-#                 lambda r: _build_prompt(r.to_dict(), variant), axis=1
-#             )
-#             vdf["esi_ground_truth"] = vdf["acuity"].apply(
-#                 lambda v: str(int(v)) if pd.notna(v) else None
-#             )
-#             vdf["clinical_category"] = (
-#                 vdf.get("chiefcomplaint", pd.Series(dtype=str)).fillna("")
-#             )
-#             vdf["source_stay_id"] = vdf["source_stay_id"].astype(str)
-#             vdf["demographic_variant"] = variant
-#             rows.append(
-#                 vdf[[
-#                     "source_stay_id",
-#                     "vignette_text",
-#                     "demographic_variant",
-#                     "clinical_category",
-#                     "esi_ground_truth",
-#                 ]]
-#             )
-# 
-#         corpus_df = pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
-# 
-#     except Exception as e:
-#         return f"Dataset build error: {e}"
-# 
-#     if corpus_df.empty:
-#         return json.dumps({
-#             "status": "error",
-#             "message": "Could not build corpus DataFrame.",
-#         })
-# 
-#     mgr = PhoenixDatasetManager()
-#     dataset_id = mgr.push_anomaly_subset(
-#         vignette_ids=vignette_ids,
-#         base_df=corpus_df,
-#         experiment_id=experiment_id,
-#         reason=reason,
-#         description=(
-#             f"Anomaly subset: {filter_type} from experiment_id {experiment_id[:8]}. "
-#             f"{len(vignette_ids)} vignettes."
-#         ),
-#     )
-# 
-#     return json.dumps({
-#         "status": "created" if dataset_id else "failed",
-#         "dataset_id": dataset_id,
-#         "n_vignettes": len(vignette_ids),
-#         "filter_type": filter_type,
-#         "experiment_id": experiment_id,
-#         "mcp_next_steps": (
-#             f"Call get-dataset-examples with dataset_id='{dataset_id}' "
-#             "to inspect the vignette rows. "
-#             f"Call get-dataset-experiments with dataset_id='{dataset_id}' "
-#             "to check if this subset has already been used in a prior targeted run."
-#         ) if dataset_id else None,
-#     })
+    return json.dumps(
+        {
+            "status": "created" if dataset_id else "failed",
+            "dataset_id": dataset_id,
+            "n_vignettes": len(vignette_ids),
+            "filter_type": filter_type,
+            "experiment_id": experiment_id,
+            "mcp_next_steps": (
+                f"Call get-dataset-examples with dataset_id='{dataset_id}' "
+                "to inspect the vignette rows. "
+                f"Call get-dataset-experiments with dataset_id='{dataset_id}' "
+                "to check if this subset has already been used in a prior targeted run."
+            )
+            if dataset_id
+            else None,
+        }
+    )
 
 
 def list_prompt_versions(prompt_name: str) -> str:
@@ -700,16 +598,18 @@ def list_prompt_versions(prompt_name: str) -> str:
 
     phoenix_name = _PROMPT_NAMES.get(prompt_name)
     if not phoenix_name:
-        return json.dumps({
-            "status": "error",
-            "message": (
-                f"Unknown prompt_name '{prompt_name}'. "
-                f"Valid: {list(_PROMPT_NAMES.keys())}"
-            ),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": (
+                    f"Unknown prompt_name '{prompt_name}'. Valid: {list(_PROMPT_NAMES.keys())}"
+                ),
+            }
+        )
 
     try:
         from phoenix.client import Client
+
         client = Client(base_url=base_url, api_key=api_key)
         versions = client.prompts.list_versions(name=phoenix_name)
         result = [

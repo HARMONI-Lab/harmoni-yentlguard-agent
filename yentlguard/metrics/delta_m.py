@@ -79,7 +79,7 @@ def compute_delta_m(response) -> DeltaMResult | None:
         return None
 
     chosen_candidates = logprobs_result.chosen_candidates  # one entry per output token
-    top_candidates = logprobs_result.top_candidates        # top-k alternatives per position
+    top_candidates = logprobs_result.top_candidates  # top-k alternatives per position
 
     full_text = ""
     token_spans = []
@@ -116,7 +116,7 @@ def compute_delta_m(response) -> DeltaMResult | None:
 
     esi_digit = target_token_text
     top_k = top_candidates[target_token_index]
-    
+
     runner_up_token = None
     runner_up_logprob = None
 
@@ -127,11 +127,7 @@ def compute_delta_m(response) -> DeltaMResult | None:
                 runner_up_token = alt_text
                 runner_up_logprob = alt.log_probability
 
-    delta_m = (
-        target_top_logprob - runner_up_logprob
-        if runner_up_logprob is not None
-        else None
-    )
+    delta_m = target_top_logprob - runner_up_logprob if runner_up_logprob is not None else None
 
     return DeltaMResult(
         esi_token=esi_digit,

@@ -1,5 +1,6 @@
 import unittest
 
+
 class TestYentlbenchContract(unittest.TestCase):
     def test_no_load_vignettes_in_yentlbench_data(self):
         """
@@ -10,4 +11,4 @@ class TestYentlbenchContract(unittest.TestCase):
         This test documents the mismatch so it can be fixed.
         """
         with self.assertRaises((ModuleNotFoundError, ImportError)):
-            from yentlbench.data import load_vignettes
+            pass
