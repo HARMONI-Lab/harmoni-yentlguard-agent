@@ -19,8 +19,7 @@ def cmd_baseline(args: argparse.Namespace) -> str:
     """
     import pandas as _pd
 
-    import phoenix as px
-    from phoenix.experiments import run_experiment
+    from phoenix.client import Client
 
     from yentlbench.local_runner.prompt import build_prompt as _build_prompt
     from yentlguard.agent.runner import YentlGuardRunner
@@ -49,8 +48,8 @@ def cmd_baseline(args: argparse.Namespace) -> str:
     # Load ONLY the examples assigned to the split. Requires arize-phoenix
     # >= 12.7.0 and a split named BASELINE_SPLIT created in the UI.
     split_name = getattr(args, "split", None) or BASELINE_SPLIT
-    dataset = px.Client().get_dataset(name=DATASET_NAME, splits=[split_name])
-
+    client = Client()
+    dataset = client.datasets.get_dataset(dataset=DATASET_NAME, splits=[split_name])
     examples = getattr(dataset, "examples", None) or []
     if len(examples) == 0:
         logger.error(
@@ -81,10 +80,10 @@ def cmd_baseline(args: argparse.Namespace) -> str:
             notes="Baseline pass for nb_ambiguous (split)",
         )
 
-        def task(example, _runner=runner, _bq=bq, _bq_id=bq_experiment_id):
-            """Run one nb_ambiguous vignette; return the baseline output."""
-            inp = example.input or {}
-            meta = example.metadata or {}
+
+        def task(input, metadata, _runner=runner, _bq=bq, _bq_id=bq_experiment_id):
+            inp = input or {}
+            meta = metadata or {}
 
             # Split already restricts to nb_ambiguous; keep a defensive default.
             variant = inp.get("demographic_variant", BASELINE_VARIANT)
@@ -125,10 +124,9 @@ def cmd_baseline(args: argparse.Namespace) -> str:
                 "errors": run.errors,
             }
 
-        experiment = run_experiment(
-            dataset=dataset,
-            task=task,
-            experiment_name=label,
+
+        experiment = client.experiments.run_experiment(
+            dataset=dataset, task=task, experiment_name=label,
             experiment_metadata={
                 "model": args.model,
                 "thinking_budget": args.budget,

@@ -2,8 +2,7 @@ import argparse
 import logging
 import uuid
 
-import phoenix as px
-from phoenix.experiments import run_experiment
+from phoenix.client import Client
 
 from ._common import _build_phoenix_components
 
@@ -35,7 +34,7 @@ def cmd_run(args: argparse.Namespace) -> str:
     prompt_mgr, dataset_mgr, _ = _build_phoenix_components()
 
     mcp_client = BQBackend(project_name="yentlguard")
-    px_client = px.Client()
+    client = Client()
 
     # Load the full corpus once for prompt-building + ground-truth lookup.
     # run_experiment iterates the Split's examples; we map back to the full row
@@ -67,8 +66,7 @@ def cmd_run(args: argparse.Namespace) -> str:
 
         for variant in args.variants:
             # Load ONLY this variant's examples via its Split (server-side).
-            dataset = px_client.get_dataset(name=DATASET_NAME, splits=[variant])
-            examples = getattr(dataset, "examples", None) or []
+            dataset = client.datasets.get_dataset(dataset=DATASET_NAME, splits=[variant])            examples = getattr(dataset, "examples", None) or []
             if not examples:
                 logger.warning(
                     "Split '%s' returned 0 examples — did you create/assign it "
@@ -98,15 +96,8 @@ def cmd_run(args: argparse.Namespace) -> str:
                     notes=args.notes,
                 )
 
-                def task(
-                    example,
-                    _variant=variant,
-                    _runner=runner,
-                    _bq=bq,
-                    _exp_id=bq_experiment_id,
-                ):
-                    # Resolve the full corpus row for prompt + ground truth.
-                    stay_id = str(int(example.metadata["source_stay_id"]))
+                def task(metadata, _variant=variant, _runner=runner, _bq=bq, _exp_id=bq_experiment_id):
+                    stay_id = str(int(metadata["source_stay_id"]))
                     vignette = row_by_id.get(stay_id)
                     if vignette is None:
                         return {"error": f"stay_id {stay_id} not in corpus"}
@@ -140,24 +131,14 @@ def cmd_run(args: argparse.Namespace) -> str:
                         "errors": run.errors,
                     }
 
-                experiment = run_experiment(
-                    dataset=dataset,
-                    task=task,
-                    experiment_name=label,
-                    experiment_metadata={
-                        "model": args.model,
-                        "thinking_budget": budget,
-                        "variant": variant,
-                        "split": variant,
-                        "bq_experiment_id": bq_experiment_id,
-                    },
-                    concurrency=getattr(args, "concurrency", 4),
+                experiment = client.experiments.run_experiment(
+                    dataset=dataset, task=task, experiment_name=label,
                 )
 
-            exp_id = (
-                getattr(experiment, "id", None)
-                or getattr(experiment, "experiment_id", None)
-            )
+            exp_id = getattr(experiment, "id", None) or getattr(experiment, "experiment_id", None)
+            if exp_id is None and isinstance(experiment, dict):
+                exp_id = experiment.get("id") or experiment.get("experiment_id")
+            
             experiment_ids.append(str(exp_id))
             logger.info("Finished experiment %s (phoenix id=%s)", label, exp_id)
 
