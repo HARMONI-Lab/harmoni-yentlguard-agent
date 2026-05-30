@@ -1,8 +1,8 @@
 import argparse
+import asyncio
 import logging
-import threading
 
-from phoenix.client import Client
+from phoenix.client import AsyncClient
 
 from ._common import _build_phoenix_components, _extract_experiment_id
 
@@ -10,12 +10,20 @@ logger = logging.getLogger("yentlguard.cli")
 
 DATASET_NAME = "yentlbench-quintets-all-variants"
 BASELINE_VARIANT = "nb_ambiguous"
-BASELINE_SPLIT = "nb_ambiguous"  # create + assign in the Phoenix UI first
+BASELINE_SPLIT = "nb_ambiguous"
 
 
 def cmd_baseline(args: argparse.Namespace) -> str:
-    """Run the nb_ambiguous baseline as a linked Phoenix experiment (client API),
-    writing BigQuery rows under the SAME experiment id Phoenix assigns.
+    """Sync CLI entrypoint — drives the async baseline on a fresh loop."""
+    return asyncio.run(_cmd_baseline_async(args))
+
+
+async def _cmd_baseline_async(args: argparse.Namespace) -> str:
+    """nb_ambiguous baseline as a linked Phoenix experiment via AsyncClient.
+
+    Each task awaits runner.arun() directly on the SAME event loop, so there is
+    no worker-thread bridge: OTel context is preserved and every span (LLM
+    generation + ΔM children) nests under the experiment run.
     """
     import pandas as _pd
     from yentlbench.local_runner.prompt import build_prompt as _build_prompt
@@ -26,7 +34,7 @@ def cmd_baseline(args: argparse.Namespace) -> str:
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
     prompt_mgr, dataset_mgr, _ = _build_phoenix_components()
-    client = Client()
+    client = AsyncClient()  # PHOENIX_BASE_URL / PHOENIX_API_KEY from env
 
     df_all = dataset_mgr.get_vignettes_df()
     if df_all.empty:
@@ -37,11 +45,13 @@ def cmd_baseline(args: argparse.Namespace) -> str:
         )
         raise SystemExit(1)
 
-    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
+    row_by_id = {
+        str(int(r["source_stay_id"])): r.to_dict()
+        for _, r in df_all.iterrows()
+    }
 
-    # Load ONLY the split's examples (no empty runs from other variants).
     split_name = getattr(args, "split", None) or BASELINE_SPLIT
-    dataset = client.datasets.get_dataset(dataset=DATASET_NAME, splits=[split_name])
+    dataset = await client.datasets.get_dataset(dataset=DATASET_NAME, splits=[split_name])
     examples = getattr(dataset, "examples", None) or []
     if not examples:
         logger.error(
@@ -61,9 +71,9 @@ def cmd_baseline(args: argparse.Namespace) -> str:
 
     label = f"baseline {args.model} {args.budget}"
     collected: list[tuple] = []
-    lock = threading.Lock()
+    lock = asyncio.Lock()
 
-    def task(input, metadata, _runner=runner):
+    async def task(input, metadata, _runner=runner):
         # Split already restricts to nb_ambiguous; keep a defensive default.
         variant = input.get("demographic_variant", BASELINE_VARIANT)
         stay_id = str(int(metadata["source_stay_id"]))
@@ -71,37 +81,43 @@ def cmd_baseline(args: argparse.Namespace) -> str:
         if vignette is None:
             return {"error": f"stay_id {stay_id} not in corpus"}
 
-
-        text = input["vignette_text"]          
-        run = _runner.run(
+        text = _build_prompt(vignette, variant)
+        # Await arun() directly — same loop, so the runner's spans nest under
+        # this task's span (no thread hop, no asyncio.run, no nest_asyncio).
+        run = await _runner.arun(
             vignette_id=stay_id,
             vignette_text=text,
             demographic_variant=variant,
-            # No experiment_id: assigned by Phoenix after the run; spans link natively.
         )
+
         esi_gt = (
             str(int(float(vignette["esi_ground_truth"])))
-            if not _pd.isna(vignette.get("esi_ground_truth")) and vignette.get("esi_ground_truth")
+            if vignette.get("esi_ground_truth") is not None
+            and not _pd.isna(vignette.get("esi_ground_truth"))
             else None
         )
         cat = (
-            str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", "")) or None
+            str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", ""))
+            or None
         )
-        dm = run.pass1_delta_m.delta_m if run.pass1_delta_m and run.pass1_delta_m.delta_m else None
-        with lock:
+        async with lock:
             collected.append((run, esi_gt, cat))
-        status = "✓" if not run.errors else "✗"
-        logger.info("%s %s | ESI=%s | ΔM=%.4f", status, stay_id, run.pass1_esi or "?", dm or 0.0)
+
+        dm = run.pass1_delta_m
         return {
             "pass1_esi": run.pass1_esi,
-            "baseline_delta_m": dm,
+            "baseline_delta_m": dm.delta_m if dm else None,
+            "pass1_top_logprob": dm.top_logprob if dm else None,
+            "pass1_runner_up_logprob": dm.runner_up_logprob if dm else None,
+            "pass1_runner_up_token": dm.runner_up_token if dm else None,
             "errors": run.errors,
         }
 
-    experiment = client.experiments.run_experiment(
+    experiment = await client.experiments.run_experiment(
         dataset=dataset,
         task=task,
         experiment_name=label,
+        concurrency=getattr(args, "concurrency", 4),
     )
 
     phoenix_id = _extract_experiment_id(experiment)
@@ -113,16 +129,14 @@ def cmd_baseline(args: argparse.Namespace) -> str:
             thinking_budgets=[args.budget],
             variants=[BASELINE_VARIANT],
             vignette_count=len(collected),
-            notes="Baseline pass for nb_ambiguous (split)",
+            notes="Baseline pass for nb_ambiguous (async split)",
         )
         for run, esi_gt, cat in collected:
             bq.write(run=run, esi_ground_truth=esi_gt, clinical_category=cat)
 
     logger.info(
         "Baseline complete. phoenix_id=%s split=%s (%d BQ rows)",
-        phoenix_id,
-        split_name,
-        len(collected),
+        phoenix_id, split_name, len(collected),
     )
 
     if provider is not None and not getattr(args, "skip_shutdown", False):
