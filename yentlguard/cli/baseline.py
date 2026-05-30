@@ -27,6 +27,7 @@ def cmd_baseline(args: argparse.Namespace) -> str:
     except RuntimeError:
         return asyncio.run(coro)
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coro).result()
 
@@ -39,14 +40,14 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
     generation + ΔM children) nests under the experiment run.
     """
     import pandas as _pd
-    from yentlguard.prompting.prompt import build_prompt as _build_prompt
 
     from yentlguard.agent.runner import YentlGuardRunner
     from yentlguard.eval.bq_writer import BQWriter
+    from yentlguard.prompting.prompt import build_prompt as _build_prompt
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
-    prompt_mgr, dataset_mgr, _ = _build_phoenix_components()
+    prompt_mgr, dataset_mgr = _build_phoenix_components()
     client = AsyncClient()  # PHOENIX_BASE_URL / PHOENIX_API_KEY from env
 
     df_all = dataset_mgr.get_vignettes_df()
@@ -58,10 +59,7 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
         )
         raise SystemExit(1)
 
-    row_by_id = {
-        str(int(r["source_stay_id"])): r.to_dict()
-        for _, r in df_all.iterrows()
-    }
+    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
 
     split_name = getattr(args, "split", None) or BASELINE_SPLIT
     dataset = await client.datasets.get_dataset(dataset=DATASET_NAME, splits=[split_name])
@@ -110,8 +108,7 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
             else None
         )
         cat = (
-            str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", ""))
-            or None
+            str(vignette.get("chiefcomplaint", "") or vignette.get("clinical_category", "")) or None
         )
         async with lock:
             collected.append((run, esi_gt, cat))
@@ -149,7 +146,9 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
 
     logger.info(
         "Baseline complete. phoenix_id=%s split=%s (%d BQ rows)",
-        phoenix_id, split_name, len(collected),
+        phoenix_id,
+        split_name,
+        len(collected),
     )
 
     if provider is not None and not getattr(args, "skip_shutdown", False):

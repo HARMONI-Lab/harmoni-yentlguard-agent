@@ -7,6 +7,7 @@ SHA-256 hash join — see docs/prompt_alignment.md in yentlbench).
 
 Wording matches the structured-output schema (TriageResponse: esi + rationale).
 """
+
 from typing import Any, Dict
 
 

@@ -45,9 +45,9 @@ def push_corpus(dataset_path: str) -> None:
     import pathlib
 
     import pandas as pd
-    from yentlguard.prompting.prompt import build_prompt
 
     from yentlguard.mcp.phoenix_manager import PhoenixDatasetManager
+    from yentlguard.prompting.prompt import build_prompt
 
     path = pathlib.Path(dataset_path)
     if not path.exists():

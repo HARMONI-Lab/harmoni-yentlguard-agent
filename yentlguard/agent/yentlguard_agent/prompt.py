@@ -138,8 +138,8 @@ DECISION RULES
 
 2.  experiment_id known, dataset_id unknown:
       → Query BQ with the experiment_id (get_pss_summary, get_sycophancy_verdict,
-        etc.). To get the Phoenix experiment record, call get-experiment-by-id 
-        using the experiment_id directly. If you need the dataset, the dataset_id 
+        etc.). To get the Phoenix experiment record, call get-experiment-by-id
+        using the experiment_id directly. If you need the dataset, the dataset_id
         will be available in the experiment metadata.
 
 3.  Before run_experiment:

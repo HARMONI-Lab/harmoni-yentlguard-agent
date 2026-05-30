@@ -226,15 +226,14 @@ def analyze_run(
         logger.error("analyze_run failed: %s", e)
         return f"Error: analysis failed — {e}"
 
+
 """Expose YentlGuardRunner as an ADK FunctionTool.
 
 Wraps the SYNC, blocking YentlGuardRunner.run() with asyncio.to_thread so it
 never touches nest_asyncio under ADK's running event loop, and flattens the
 VignetteRun result into JSON-safe primitives for the model.
 """
-import asyncio
 
-from google.adk.tools import FunctionTool
 
 from yentlguard.agent.runner import YentlGuardRunner
 from yentlguard.cli._common import _build_phoenix_components
@@ -289,5 +288,3 @@ async def triage_vignette(
     return _run_to_dict(run)
 
 
-# Register as an ADK tool (import this where you build the agent).
-triage_vignette_tool = FunctionTool(triage_vignette)

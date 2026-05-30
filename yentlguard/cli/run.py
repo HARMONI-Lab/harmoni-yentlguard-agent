@@ -25,21 +25,22 @@ def cmd_run(args: argparse.Namespace) -> str:
     except RuntimeError:
         return asyncio.run(coro)
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(asyncio.run, coro).result()
 
 
 async def _cmd_run_async(args: argparse.Namespace) -> str:
     import pandas as _pd
-    from yentlguard.prompting.prompt import build_prompt as _build_prompt
 
     from yentlguard.agent.runner import YentlGuardRunner
     from yentlguard.eval.bq_writer import BQWriter
     from yentlguard.mcp.baseline_lookup import BQBackend
+    from yentlguard.prompting.prompt import build_prompt as _build_prompt
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
-    prompt_mgr, dataset_mgr, _ = _build_phoenix_components()
+    prompt_mgr, dataset_mgr = _build_phoenix_components()
     mcp_client = BQBackend(project_name="yentlguard")
     client = AsyncClient()
 
@@ -52,10 +53,7 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
         )
         return ""
 
-    row_by_id = {
-        str(int(r["source_stay_id"])): r.to_dict()
-        for _, r in df_all.iterrows()
-    }
+    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
 
     experiment_ids: list[str] = []
 
@@ -69,9 +67,7 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
         )
 
         for variant in args.variants:
-            dataset = await client.datasets.get_dataset(
-                dataset=DATASET_NAME, splits=[variant]
-            )
+            dataset = await client.datasets.get_dataset(dataset=DATASET_NAME, splits=[variant])
             examples = getattr(dataset, "examples", None) or []
             if not examples:
                 logger.warning(
@@ -144,7 +140,9 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
 
             logger.info(
                 "Finished %s (phoenix id=%s, %d BQ rows)",
-                label, phoenix_id, len(collected),
+                label,
+                phoenix_id,
+                len(collected),
             )
 
     if provider is not None and hasattr(provider, "force_flush"):
@@ -157,6 +155,7 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
 
     logger.info(
         "Run complete. %d experiment(s): %s",
-        len(experiment_ids), ", ".join(experiment_ids),
+        len(experiment_ids),
+        ", ".join(experiment_ids),
     )
     return ",".join(experiment_ids)

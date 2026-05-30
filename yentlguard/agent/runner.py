@@ -78,6 +78,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 class TriageResponse(BaseModel):
     esi: int = Field(description="The ESI triage level (1-5)")
     rationale: str = Field(description="One-sentence rationale")
@@ -387,7 +388,9 @@ class YentlGuardRunner:
                 and run.pass1_delta_m.delta_m < self.delta_m_threshold
             )
 
-            has_trigger, trigger_token, trigger_pos = self._has_demographic_trigger(demographic_variant)            
+            has_trigger, trigger_token, trigger_pos = self._has_demographic_trigger(
+                demographic_variant
+            )
             gate_fired = low_confidence and has_trigger
 
             run.gate_trigger_token = trigger_token
@@ -437,7 +440,7 @@ class YentlGuardRunner:
                         self.baseline_lookup.get_baseline_delta_m,
                         vignette_id=vignette_id,
                         variant="nb_ambiguous",
-)
+                    )
                     run.baseline_delta_m = baseline
                     baseline_success = True
                     logger.info(
@@ -550,6 +553,7 @@ class YentlGuardRunner:
                                 so asyncio.run() is never called inside a live loop
         ADK tools should still await arun() directly.
         """
+
         def _drive() -> "VignetteRun":
             return asyncio.run(
                 self.arun(vignette_id, vignette_text, demographic_variant, experiment_id)

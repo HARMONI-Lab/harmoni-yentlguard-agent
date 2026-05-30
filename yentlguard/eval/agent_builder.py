@@ -66,53 +66,6 @@ WHERE v.experiment_id IN UNNEST(@experiment_ids)
 ORDER BY v.vignette_id, v.model_version, v.thinking_budget, v.demographic_variant
 """.strip()
 
-PSS_QUERY = """
--- Perturbation Sensitivity Score per model × thinking_budget × clinical_category
--- PSS = mean absolute delta_m drop from nb_ambiguous baseline across male, female/nb variants
-SELECT
-    model_version,
-    model_family,
-    thinking_budget,
-    clinical_category,
-    demographic_variant,
-    COUNT(*) AS n_vignettes,
-    AVG(delta_m) AS mean_delta_m,
-    AVG(baseline_delta_m) AS mean_baseline_delta_m,
-    AVG(baseline_delta_m - delta_m) AS mean_delta_m_drop,
-    STDDEV(baseline_delta_m - delta_m) AS stddev_delta_m_drop,
-    AVG(tar) AS mean_tar,
-    SUM(CAST(gate_fired AS INT64)) AS n_gate_fired,
-    AVG(crr) AS mean_crr,
-    SUM(CAST(triage_changed AS INT64)) AS n_triage_changed,
-    COUNTIF(recovery_class = 'full') AS n_full_recovery,
-    COUNTIF(recovery_class = 'partial') AS n_partial_recovery,
-    COUNTIF(recovery_class = 'failed') AS n_failed_recovery
-FROM `{runs_table}`
-WHERE experiment_id IN UNNEST(@experiment_ids)
-  AND pass_number = 1
-  AND demographic_variant != 'nb_ambiguous'
-GROUP BY 1, 2, 3, 4, 5
-ORDER BY model_family, thinking_budget, clinical_category, demographic_variant
-""".strip()
-
-THINKING_BUDGET_QUERY = """
--- H1: Reasoning Mitigation Effect
--- Does higher thinking budget reduce PSS?
-SELECT
-    model_version,
-    thinking_budget,
-    demographic_variant,
-    AVG(baseline_delta_m - delta_m) AS mean_pss,
-    AVG(tar) AS mean_tar,
-    COUNT(*) AS n
-FROM `{runs_table}`
-WHERE experiment_id IN UNNEST(@experiment_ids)
-  AND pass_number = 1
-   AND demographic_variant IN ('male', 'female', 'nb_label_only', 'nb_explicit')
-GROUP BY 1, 2, 3
-ORDER BY model_version, thinking_budget, demographic_variant
-""".strip()
-
 
 # ── Agent Builder eval task registration ───────────────────────────────────────
 
@@ -187,25 +140,6 @@ class AgentBuilderEvalLayer:
         )
         return df
 
-    def compute_pss_summary(self, experiment_ids: list[str]) -> pd.DataFrame:
-        """
-        Compute Perturbation Sensitivity Score summary across model × budget × category.
-
-        This is the primary cross-model comparison table for H1 and H3.
-        """
-        sql = PSS_QUERY.format(runs_table=RUNS_TABLE)
-        params = [bigquery.ArrayQueryParameter("experiment_ids", "STRING", experiment_ids)]
-        return self._query(sql, params)
-
-    def compute_thinking_budget_effect(self, experiment_ids: list[str]) -> pd.DataFrame:
-        """
-        H1: Reasoning Mitigation Effect.
-        Returns mean PSS by model × thinking_budget × variant.
-        """
-        sql = THINKING_BUDGET_QUERY.format(runs_table=RUNS_TABLE)
-        params = [bigquery.ArrayQueryParameter("experiment_ids", "STRING", experiment_ids)]
-        return self._query(sql, params)
-
     def register_eval_task(
         self,
         experiment_ids: list[str],
@@ -262,7 +196,7 @@ class AgentBuilderEvalLayer:
         task_id = str(uuid.uuid4())
         experiment_name = f"yentlguard-{label.lower().replace(' ', '-')}-{task_id[:8]}"
 
-        eval_task = VAIEvalTask(
+        VAIEvalTask(
             dataset=eval_df,
             metrics=["exact_match", delta_m_metric],
             experiment=experiment_name,
@@ -283,56 +217,3 @@ class AgentBuilderEvalLayer:
             label=label,
             notes=notes,
         )
-
-    def compare_model_generations(
-        self,
-        experiment_ids_by_model: dict[str, str],
-        variant: str = "female",
-        clinical_category: str | None = None,
-    ) -> pd.DataFrame:
-        """
-        Build a side-by-side comparison DataFrame across model generations.
-
-        Parameters
-        ----------
-        experiment_ids_by_model:
-            Mapping of model_version → experiment_id, e.g.:
-            {
-                "gemini-2.5-pro": "id-for-2.5-run",
-                "gemini-3.1-pro": "id-for-3.1-run",
-                "gemini-3.5-pro": "id-for-3.5-run",   # when it drops
-            }
-        variant:
-            Demographic variant to compare across models.
-        clinical_category:
-            Filter to one clinical category. None = all categories.
-
-        Returns
-        -------
-        DataFrame with one row per vignette_id, columns per model_version
-        showing delta_m, tar, crr, and esi_correct.
-        """
-        all_experiment_ids = list(experiment_ids_by_model.values())
-        df = self.build_eval_dataset(experiment_ids=all_experiment_ids, pass_number=1)
-
-        df = df[df["demographic_variant"] == variant]
-        if clinical_category:
-            df = df[df["clinical_category"] == clinical_category]
-
-        pivot = df.pivot_table(
-            index="vignette_id",
-            columns="model_version",
-            values=["delta_m", "tar", "esi_correct", "is_low_confidence"],
-            aggfunc="first",
-        )
-        pivot.columns = [f"{metric}__{model}" for metric, model in pivot.columns]
-        pivot = pivot.reset_index()
-
-        logger.info(
-            "Cross-model comparison: variant=%s category=%s models=%s vignettes=%d",
-            variant,
-            clinical_category or "all",
-            list(experiment_ids_by_model.keys()),
-            len(pivot),
-        )
-        return pivot
