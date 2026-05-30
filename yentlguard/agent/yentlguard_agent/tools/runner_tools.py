@@ -249,7 +249,7 @@ from yentlguard.cli._common import _build_phoenix_components
 from yentlguard.mcp.baseline_lookup import BQBackend
 
 # --- Build the runner ONCE at import (the genai client is expensive). --------
-_prompt_mgr, _dataset_mgr, _ = _build_phoenix_components()
+_prompt_mgr, _dataset_mgr = _build_phoenix_components()
 _RUNNER = YentlGuardRunner(
     model_version="gemini-2.5-pro",
     thinking_budget="medium",

@@ -121,7 +121,7 @@ def get_pss_summary(experiment_ids: list[str]) -> str:
         ROUND(STDDEV(baseline_delta_m - delta_m), 4) AS stddev_pss,
         ROUND(AVG(tar), 4) AS mean_tar,
         SUM(CAST(gate_fired AS INT64)) AS n_gate_fired,
-        ROUND(AVG(CAST(gate_fired AS FLOAT64)), 4) AS gate_fire_rate,
+        ROUND(AVG(CAST(gate_fired AS INT64)), 4) AS gate_fire_rate,
         ROUND(AVG(crr), 4) AS mean_crr,
         SUM(CAST(triage_changed AS INT64)) AS n_triage_changed
     FROM `{RUNS_TABLE}`
@@ -254,7 +254,7 @@ def get_gate_fire_rate(
         clinical_category,
         COUNT(*) AS n_vignettes,
         SUM(CAST(gate_fired AS INT64)) AS n_gate_fired,
-        ROUND(AVG(CAST(gate_fired AS FLOAT64)), 4) AS gate_fire_rate,
+        ROUND(AVG(CAST(gate_fired AS INT64)), 4) AS gate_fire_rate,
         ROUND(AVG(CASE WHEN gate_fired THEN delta_m END), 4) AS mean_dm_when_fired,
         ROUND(AVG(CASE WHEN NOT gate_fired THEN delta_m END), 4) AS mean_dm_when_not_fired
     FROM `{RUNS_TABLE}`

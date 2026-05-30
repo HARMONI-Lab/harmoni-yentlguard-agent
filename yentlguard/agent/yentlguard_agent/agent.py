@@ -1,12 +1,11 @@
 """
 YentlGuard root ADK agent.
 
-Tool inventory:
-    BigQuery tools     — metric queries, PSS, sycophancy verdicts, gate rates
-    Runner tools       — run_baseline, run_experiment, analyze_run
-    Phoenix tools      — span annotation, prompt versioning, anomaly datasets
-    Phoenix MCP tools  — trace/span exploration, list-experiments, list-prompts
-                         (@arizeai/phoenix-mcp via npx stdio process)
+Multi-agent architecture:
+    Root Supervisor  — Plans and delegates to sub-agents via ADK transfer
+    Data Analyst     — BigQuery metrics, PSS, sycophancy verdicts
+    Observability    — Phoenix MCP, trace/span exploration, prompt versions
+    Runner           — Baseline runs, experiments, and reporting
 """
 
 from __future__ import annotations
@@ -40,7 +39,12 @@ from google.adk.tools import FunctionTool
 from google.genai import Client
 
 from yentlguard.agent.yentlguard_agent.mcp_config import build_phoenix_mcp_toolset
-from yentlguard.agent.yentlguard_agent.prompt import SYSTEM_INSTRUCTION
+from yentlguard.agent.yentlguard_agent.prompt import (
+    DATA_ANALYST_INSTRUCTION,
+    EXPERIMENT_RUNNER_INSTRUCTION,
+    OBSERVABILITY_INSTRUCTION,
+    SUPERVISOR_INSTRUCTION,
+)
 from yentlguard.agent.yentlguard_agent.tools.bq_tools import (
     get_gate_fire_rate,
     get_pss_summary,
@@ -76,41 +80,70 @@ class VertexGemini(Gemini):
         )
 
 
-_tools = [
-    # BigQuery — metric aggregation
+# --- DATA ANALYST AGENT ---
+data_analyst_tools = [
     FunctionTool(func=query_bigquery),
     FunctionTool(func=list_experiments),
     FunctionTool(func=get_pss_summary),
     FunctionTool(func=get_sycophancy_verdict),
     FunctionTool(func=get_gate_fire_rate),
-    # Runner — experiment execution
-    FunctionTool(func=triage_vignette),
-    FunctionTool(func=run_baseline),
-    FunctionTool(func=run_experiment),
-    FunctionTool(func=analyze_run),
-    # Phoenix — span annotation, prompt management, anomaly datasets
+]
+
+data_analyst_agent = Agent(
+    model=VertexGemini(model=_model),
+    name="data_analyst_agent",
+    description="Handles BigQuery metric aggregation, statistical thresholds, PSS, CRR, and computes sycophancy verdicts.",
+    instruction=DATA_ANALYST_INSTRUCTION,
+    tools=data_analyst_tools,
+)
+
+# --- OBSERVABILITY & PROMPT ENGINEER AGENT ---
+observability_tools = [
     FunctionTool(func=annotate_spans_with_verdicts),
     FunctionTool(func=push_prompt_version),
     FunctionTool(func=list_prompt_versions),
     FunctionTool(func=create_anomaly_dataset),
 ]
 
-# Phoenix MCP toolset — npx @arizeai/phoenix-mcp stdio process
-# Provides: list-traces, get-trace, list-spans, get-span,
-#           list-projects, list-datasets, get-dataset,
-#           list-experiments, get-experiment,
-#           list-prompts, get-prompt, upsert-prompt,
-#           add-dataset-examples, annotate-span
 _phoenix_mcp = build_phoenix_mcp_toolset()
 if _phoenix_mcp is not None:
-    _tools.append(_phoenix_mcp)
-    logger.info("Phoenix MCP toolset attached.")
+    observability_tools.append(_phoenix_mcp)
+    logger.info("Phoenix MCP toolset attached to observability_agent.")
 else:
     logger.info("Phoenix MCP toolset unavailable — set PHOENIX_API_KEY to enable.")
 
+observability_agent = Agent(
+    model=VertexGemini(model=_model),
+    name="observability_agent",
+    description="Handles Arize Phoenix integration. Manages prompt versioning, trace/span exploration, anomaly datasets, and writing span annotations.",
+    instruction=OBSERVABILITY_INSTRUCTION,
+    tools=observability_tools,
+)
+
+# --- EXPERIMENT RUNNER AGENT ---
+runner_tools = [
+    FunctionTool(func=triage_vignette),
+    FunctionTool(func=run_baseline),
+    FunctionTool(func=run_experiment),
+    FunctionTool(func=analyze_run),
+]
+
+experiment_runner_agent = Agent(
+    model=VertexGemini(model=_model),
+    name="experiment_runner_agent",
+    description="Safely orchestrates long-running Gemini triage evaluations, calculates costs, and generates HTML/CSV reports.",
+    instruction=EXPERIMENT_RUNNER_INSTRUCTION,
+    tools=runner_tools,
+)
+
+# --- ROOT SUPERVISOR AGENT ---
 root_agent = Agent(
     model=VertexGemini(model=_model),
     name="yentlguard_agent",
-    instruction=SYSTEM_INSTRUCTION,
-    tools=_tools,
+    instruction=SUPERVISOR_INSTRUCTION,
+    sub_agents=[
+        data_analyst_agent,
+        observability_agent,
+        experiment_runner_agent,
+    ],
 )
