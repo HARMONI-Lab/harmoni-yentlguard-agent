@@ -39,7 +39,7 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
     generation + ΔM children) nests under the experiment run.
     """
     import pandas as _pd
-    from yentlbench.local_runner.prompt import build_prompt as _build_prompt
+    from yentlguard.prompting.prompt import build_prompt as _build_prompt
 
     from yentlguard.agent.runner import YentlGuardRunner
     from yentlguard.eval.bq_writer import BQWriter

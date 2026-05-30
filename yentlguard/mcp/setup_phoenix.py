@@ -45,7 +45,7 @@ def push_corpus(dataset_path: str) -> None:
     import pathlib
 
     import pandas as pd
-    from yentlbench.local_runner.prompt import build_prompt
+    from yentlguard.prompting.prompt import build_prompt
 
     from yentlguard.mcp.phoenix_manager import PhoenixDatasetManager
 

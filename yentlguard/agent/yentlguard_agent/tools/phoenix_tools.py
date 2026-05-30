@@ -479,7 +479,7 @@ def create_anomaly_dataset(
     vignette_ids = df_ids["vignette_id"].astype(str).tolist()
 
     try:
-        from yentlbench.local_runner.prompt import build_prompt as _build_prompt
+        from yentlguard.prompting.prompt import build_prompt as _build_prompt
 
         full_df = PhoenixDatasetManager().get_vignettes_df()
         if full_df.empty:

@@ -31,7 +31,7 @@ def cmd_run(args: argparse.Namespace) -> str:
 
 async def _cmd_run_async(args: argparse.Namespace) -> str:
     import pandas as _pd
-    from yentlbench.local_runner.prompt import build_prompt as _build_prompt
+    from yentlguard.prompting.prompt import build_prompt as _build_prompt
 
     from yentlguard.agent.runner import YentlGuardRunner
     from yentlguard.eval.bq_writer import BQWriter

@@ -78,7 +78,7 @@ def _load_vignettes(variant: str, n: int):
     import pandas as pd
 
     try:
-        from yentlbench.local_runner.prompt import build_prompt
+        from yentlguard.prompting.prompt import build_prompt
     except ImportError:
         pytest.skip("YentlBench not installed. Run: pip install yentlbench")
 
@@ -298,7 +298,7 @@ class TestYentlBenchData(unittest.TestCase):
         Female prompts must contain a demographic signal token.
         nb_ambiguous prompts must not.
         """
-        from yentlbench.local_runner.prompt import build_prompt
+        from yentlguard.prompting.prompt import build_prompt
 
         dataset_path = _find_quintets_csv()
         if dataset_path is None:

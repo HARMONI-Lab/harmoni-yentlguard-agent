@@ -90,7 +90,7 @@ def main() -> int:
         if not args.live or ran["n"] >= args.limit:
             return {"smoke": "stub", "variant": args.split}
         ran["n"] += 1
-        from yentlbench.local_runner.prompt import build_prompt
+        from yentlguard.prompting.prompt import build_prompt
 
         stay_id = str(int(metadata["source_stay_id"]))
         vignette = row_by_id.get(stay_id)
