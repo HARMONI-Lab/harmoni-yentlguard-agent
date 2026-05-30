@@ -61,6 +61,8 @@ def run_baseline(
 
     from yentlguard.cli import cmd_baseline
 
+    logger.info(f"Agent triggered run_baseline(model={model}, budget={budget}, split={split})")
+
     args = argparse.Namespace(model=model, budget=budget, split=split, skip_shutdown=True)
     try:
         experiment_id = cmd_baseline(args)
@@ -133,6 +135,8 @@ def run_experiment(
     import argparse
 
     from yentlguard.cli import cmd_run
+
+    logger.info(f"Agent triggered run_experiment(model={model}, variants={variants}, budgets={budgets})")
 
     args = argparse.Namespace(
         model=model,
@@ -208,9 +212,14 @@ def analyze_run(
 
     from yentlguard.cli import cmd_analyze
 
+    logger.info(f"Agent triggered analyze_run(experiment_ids={experiment_ids}, output_dir={output_dir})")
+
     args = argparse.Namespace(
         experiment_ids=experiment_ids,
-        output_dir=output_dir,
+        output=output_dir,
+        register_eval=False,
+        label=None,
+        notes=None,
     )
     try:
         cmd_analyze(args)

@@ -196,11 +196,12 @@ class AgentBuilderEvalLayer:
         task_id = str(uuid.uuid4())
         experiment_name = f"yentlguard-{label.lower().replace(' ', '-')}-{task_id[:8]}"
 
-        VAIEvalTask(
+        eval_task = VAIEvalTask(
             dataset=eval_df,
             metrics=["exact_match", delta_m_metric],
             experiment=experiment_name,
         )
+        eval_task.evaluate()
 
         logger.info(
             "Agent Builder eval task registered: %s | models=%s | rows=%d",

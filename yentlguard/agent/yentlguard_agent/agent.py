@@ -13,8 +13,17 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from functools import cached_property
 from pathlib import Path
+
+# Force basic config so ADK agent logs stream directly to the terminal
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    force=True,
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 
 from dotenv import load_dotenv
 

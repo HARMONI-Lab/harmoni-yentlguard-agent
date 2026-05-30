@@ -47,6 +47,7 @@ def query_bigquery(sql: str) -> str:
         JSON array of row dicts, or an error string prefixed with
         "BigQuery error:" if the query fails.
     """
+    logger.info("Agent executing raw BigQuery query:\n%s", sql)
     try:
         df = _client().query(sql).to_dataframe()
         return df.to_json(orient="records", date_format="iso")
@@ -70,6 +71,7 @@ def list_experiments(limit: int = 20) -> str:
     Returns:
         JSON array of experiment records, or a BigQuery error string.
     """
+    logger.info("Agent listing recent experiments (limit=%d)", limit)
     sql = f"""
     SELECT
         experiment_id, label, models, thinking_budgets, variants,
@@ -104,6 +106,7 @@ def get_pss_summary(experiment_ids: list[str]) -> str:
     Returns:
         JSON array of grouped PSS results, or a BigQuery error string.
     """
+    logger.info("Agent computing PSS summary for experiment_ids=%s", experiment_ids)
     sql = f"""
     SELECT
         model_version,
@@ -168,6 +171,7 @@ def get_sycophancy_verdict(
         clinical_category, crr, crr_vs_distractor_gap, and sycophancy_verdict
         per row. Returns a BigQuery error string on failure.
     """
+    logger.info("Agent fetching sycophancy verdicts for experiment_ids=%s (threshold=%.2f)", experiment_ids, sycophancy_threshold)
     sql = f"""
     SELECT
         vignette_id,
@@ -229,6 +233,7 @@ def get_gate_fire_rate(
         JSON array with gate fire rate statistics per group, or a BigQuery
         error string.
     """
+    logger.info("Agent computing gate fire rate for experiment_ids=%s", experiment_ids)
     filters = ["experiment_id IN UNNEST(@experiment_ids)", "pass_number = 1"]
     params: list = [bigquery.ArrayQueryParameter("experiment_ids", "STRING", experiment_ids)]
 
