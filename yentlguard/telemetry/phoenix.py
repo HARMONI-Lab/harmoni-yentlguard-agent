@@ -71,6 +71,6 @@ def setup_phoenix_tracing(
         auto_instrument=True,
         verbose=False,
     )
-
+    logging.getLogger("opentelemetry.context").setLevel(logging.CRITICAL)
     logger.info("YentlGuard → Phoenix tracing active. Project: %s", resolved_project)
     return _provider

@@ -18,7 +18,7 @@ import logging
 
 from google.cloud import bigquery
 
-from yentlguard.config import EXPTS_TABLE, GCP_PROJECT_ID, RUNS_TABLE
+from yentlguard.config import EXPTS_TABLE, FULL_DATASET, GCP_PROJECT_ID, RUNS_TABLE
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,13 @@ def query_bigquery(sql: str) -> str:
     Execute a BigQuery SQL query against the YentlGuard dataset and return
     results as a JSON string. Use for any metric query not covered by the
     specialized tools. Always use fully-qualified table references:
-    runs table is {project}.{dataset}.runs,
-    experiments table is {project}.{dataset}.experiments.
+    runs table is {RUNS_TABLE},
+    experiments table is {EXPTS_TABLE}.
+
+    If you do not know the exact schema of a table, run a query against
+    `{FULL_DATASET}.INFORMATION_SCHEMA.COLUMNS` (e.g. 
+    SELECT column_name FROM `{FULL_DATASET}.INFORMATION_SCHEMA.COLUMNS` WHERE table_name = 'runs')
+    to find the correct column names before running your main query.
 
     Args:
         sql: Valid BigQuery standard SQL. Fully qualify table names.
@@ -54,6 +59,13 @@ def query_bigquery(sql: str) -> str:
     except Exception as e:
         logger.error("query_bigquery failed: %s", e)
         return f"BigQuery error: {e}"
+
+if query_bigquery.__doc__:
+    query_bigquery.__doc__ = query_bigquery.__doc__.format(
+        RUNS_TABLE=RUNS_TABLE,
+        EXPTS_TABLE=EXPTS_TABLE,
+        FULL_DATASET=FULL_DATASET
+    )
 
 
 def list_experiments(limit: int = 20) -> str:
