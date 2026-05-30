@@ -84,6 +84,7 @@ DEMOGRAPHIC_TRIGGER_TOKENS = {
     "lady",
     "she",
     "her",
+    "male",
     "black",
     "african american",
     "hispanic",
@@ -305,21 +306,27 @@ class YentlGuardRunner:
             f"VIGNETTE:\n{original_vignette}"
         )
 
-    def _has_demographic_trigger(self, text: str) -> tuple[bool, str | None, int | None]:
-        text_lower = text.lower()
-        for trigger in DEMOGRAPHIC_TRIGGER_TOKENS:
-            idx = text_lower.find(trigger)
-            if idx != -1:
-                return True, trigger, idx
-        return False, None, None
+    def _has_demographic_trigger(
+        self, demographic_variant: str
+    ) -> tuple[bool, str | None, int | None]:
+        """Gate off the variant LABEL, not the rendered prompt text.
 
-    def run(
+        Every non-baseline variant carries a demographic signal; nb_ambiguous is
+        the de-identified baseline and carries none. Position is meaningless for a
+        label, so it's None — but the tuple shape is unchanged.
+        """
+        variant = (demographic_variant or "").strip().lower()
+        if variant in ("nb_ambiguous", ""):
+            return False, None, None
+        return True, variant, None
+
+    async def arun(
         self,
         vignette_id: str,
         vignette_text: str,
         demographic_variant: str,
         experiment_id: str | None = None,
-    ) -> VignetteRun:
+    ) -> "VignetteRun":
         """
         Execute a full mechanistic run for one vignette × variant.
 
@@ -361,7 +368,8 @@ class YentlGuardRunner:
                 self.model_version,
             )
             try:
-                response1 = self._client.models.generate_content(
+                response1 = await asyncio.to_thread(
+                    self._client.models.generate_content,
                     model=self.model_version,
                     contents=vignette_text,
                     config=config,
@@ -398,8 +406,8 @@ class YentlGuardRunner:
                 and run.pass1_delta_m.delta_m is not None
                 and run.pass1_delta_m.delta_m < self.delta_m_threshold
             )
-            has_trigger, trigger_token, trigger_pos = self._has_demographic_trigger(vignette_text)
-            gate_fired = low_confidence and has_trigger
+
+            has_trigger, trigger_token, trigger_pos = self._has_demographic_trigger(demographic_variant)            gate_fired = low_confidence and has_trigger
 
             run.gate_trigger_token = trigger_token
             run.gate_trigger_position = trigger_pos
@@ -444,10 +452,11 @@ class YentlGuardRunner:
 
             if self.baseline_lookup is not None:
                 try:
-                    baseline = self.baseline_lookup.get_baseline_delta_m(
+                    baseline = await asyncio.to_thread(
+                        self.baseline_lookup.get_baseline_delta_m,
                         vignette_id=vignette_id,
                         variant="nb_ambiguous",
-                    )
+)
                     run.baseline_delta_m = baseline
                     baseline_success = True
                     logger.info(
@@ -489,29 +498,14 @@ class YentlGuardRunner:
                 "3c": self._build_distractor_c(vignette_text),
             }
 
-            # asyncio.run() guard — handles both sync CLI and async ADK contexts
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
-            if loop.is_running():
-                import nest_asyncio
-
-                nest_asyncio.apply(loop)
-
-            branch_results = loop.run_until_complete(
-                self._run_parallel_branches(
-                    branches=branches,
-                    config=config,
-                    vignette_id=vignette_id,
-                    demographic_variant=demographic_variant,
-                    run=run,
-                    experiment_id=experiment_id,
-                )
+            branch_results = await self._run_parallel_branches(
+                branches=branches,
+                config=config,
+                vignette_id=vignette_id,
+                demographic_variant=demographic_variant,
+                run=run,
+                experiment_id=experiment_id,
             )
-
             # ── Store results ─────────────────────────────────────────────────
             corr = branch_results.get("corrective")
             if corr and not corr.get("error"):
@@ -559,6 +553,18 @@ class YentlGuardRunner:
                     run.errors.append(f"Pass {label} failed: {br['error']}")
 
         return run
+
+    def run(
+        self,
+        vignette_id: str,
+        vignette_text: str,
+        demographic_variant: str,
+        experiment_id: str | None = None,
+    ) -> "VignetteRun":
+        """Sync shim for the CLI; agents/tools should call arun()."""
+        return asyncio.run(
+            self.arun(vignette_id, vignette_text, demographic_variant, experiment_id)
+        )
 
     async def _run_parallel_branches(
         self,

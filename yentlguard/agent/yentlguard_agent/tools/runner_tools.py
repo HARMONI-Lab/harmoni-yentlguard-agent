@@ -225,3 +225,71 @@ def analyze_run(
     except Exception as e:
         logger.error("analyze_run failed: %s", e)
         return f"Error: analysis failed — {e}"
+
+"""Expose YentlGuardRunner as an ADK FunctionTool.
+
+Wraps the SYNC, blocking YentlGuardRunner.run() with asyncio.to_thread so it
+never touches nest_asyncio under ADK's running event loop, and flattens the
+VignetteRun result into JSON-safe primitives for the model.
+"""
+from __future__ import annotations
+
+import asyncio
+
+from google.adk.tools import FunctionTool
+
+from yentlguard.agent.runner import YentlGuardRunner
+from yentlguard.cli._common import _build_phoenix_components
+from yentlguard.mcp.baseline_lookup import BQBackend
+
+# --- Build the runner ONCE at import (the genai client is expensive). --------
+_prompt_mgr, _dataset_mgr, _ = _build_phoenix_components()
+_RUNNER = YentlGuardRunner(
+    model_version="gemini-2.5-pro",
+    thinking_budget="medium",
+    delta_m_threshold=1.0,
+    baseline_lookup=BQBackend(project_name="yentlguard"),
+    prompt_manager=_prompt_mgr,
+)
+
+
+def _f(x):
+    """Safe float extraction (None stays None)."""
+    return float(x) if x is not None else None
+
+
+def _run_to_dict(run) -> dict:
+    """Flatten a VignetteRun into JSON-safe primitives for the LLM."""
+    return {
+        "vignette_id": run.vignette_id,
+        "demographic_variant": run.demographic_variant,
+        "model_version": run.model_version,
+        "thinking_budget": run.thinking_budget,
+        # Pass 1
+        "pass1_esi": run.pass1_esi,
+        "pass1_delta_m": _f(getattr(run.pass1_delta_m, "delta_m", None)),
+        # Gate
+        "intervention_triggered": run.intervention_triggered,
+        "gate_trigger_token": run.gate_trigger_token,
+        "baseline_delta_m": _f(run.baseline_delta_m),
+        # Corrective (pass 2) + distractor controls
+        "pass2_esi": run.pass2_esi,
+        "crr_corrective": _f(getattr(run.crr, "crr", None)),
+        "crr_distractor_a": _f(getattr(run.crr_distractor_a, "crr", None)),
+        "crr_distractor_b": _f(getattr(run.crr_distractor_b, "crr", None)),
+        "crr_distractor_c": _f(getattr(run.crr_distractor_c, "crr", None)),
+        "errors": run.errors,
+    }
+
+
+async def triage_vignette(
+    vignette_id: str,
+    vignette_text: str,
+    demographic_variant: str,
+) -> dict:
+    run = await _RUNNER.arun(vignette_id, vignette_text, demographic_variant)
+    return _run_to_dict(run)
+
+
+# Register as an ADK tool (import this where you build the agent).
+triage_vignette_tool = FunctionTool(triage_vignette)

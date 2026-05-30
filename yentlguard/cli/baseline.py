@@ -71,7 +71,8 @@ def cmd_baseline(args: argparse.Namespace) -> str:
         if vignette is None:
             return {"error": f"stay_id {stay_id} not in corpus"}
 
-        text = _build_prompt(vignette, variant)
+
+        text = input["vignette_text"]          
         run = _runner.run(
             vignette_id=stay_id,
             vignette_text=text,
