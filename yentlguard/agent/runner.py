@@ -48,6 +48,7 @@ OTel context propagation:
 """
 
 import asyncio
+import concurrent.futures
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -76,27 +77,6 @@ if TYPE_CHECKING:
     from yentlguard.mcp.phoenix_manager import PhoenixPromptManager
 
 logger = logging.getLogger(__name__)
-
-DEMOGRAPHIC_TRIGGER_TOKENS = {
-    "female",
-    "woman",
-    "girl",
-    "lady",
-    "she",
-    "her",
-    "male",
-    "black",
-    "african american",
-    "hispanic",
-    "latino",
-    "latina",
-    "asian",
-    "non-binary",
-    "transgender",
-    "they",
-    "them",
-}
-
 
 class TriageResponse(BaseModel):
     esi: int = Field(description="The ESI triage level (1-5)")
@@ -407,7 +387,8 @@ class YentlGuardRunner:
                 and run.pass1_delta_m.delta_m < self.delta_m_threshold
             )
 
-            has_trigger, trigger_token, trigger_pos = self._has_demographic_trigger(demographic_variant)            gate_fired = low_confidence and has_trigger
+            has_trigger, trigger_token, trigger_pos = self._has_demographic_trigger(demographic_variant)            
+            gate_fired = low_confidence and has_trigger
 
             run.gate_trigger_token = trigger_token
             run.gate_trigger_position = trigger_pos
@@ -561,10 +542,29 @@ class YentlGuardRunner:
         demographic_variant: str,
         experiment_id: str | None = None,
     ) -> "VignetteRun":
-        """Sync shim for the CLI; agents/tools should call arun()."""
-        return asyncio.run(
-            self.arun(vignette_id, vignette_text, demographic_variant, experiment_id)
-        )
+        """Sync entrypoint for the CLI and Phoenix run_experiment tasks.
+
+        Works regardless of the calling thread's loop state:
+        - no running loop  -> drive arun() directly via asyncio.run()
+        - running loop     -> run arun() on a fresh loop in a worker thread,
+                                so asyncio.run() is never called inside a live loop
+        ADK tools should still await arun() directly.
+        """
+        def _drive() -> "VignetteRun":
+            return asyncio.run(
+                self.arun(vignette_id, vignette_text, demographic_variant, experiment_id)
+            )
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop in this thread -> safe to drive one here (plain CLI case).
+            return _drive()
+
+        # A loop is already running in this thread (Phoenix's task executor, ADK,
+        # Jupyter, ...). Off-load to a worker thread that has no loop of its own.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_drive).result()
 
     async def _run_parallel_branches(
         self,

@@ -232,8 +232,6 @@ Wraps the SYNC, blocking YentlGuardRunner.run() with asyncio.to_thread so it
 never touches nest_asyncio under ADK's running event loop, and flattens the
 VignetteRun result into JSON-safe primitives for the model.
 """
-from __future__ import annotations
-
 import asyncio
 
 from google.adk.tools import FunctionTool

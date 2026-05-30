@@ -49,7 +49,7 @@ from yentlguard.agent.yentlguard_agent.tools.runner_tools import (
     analyze_run,
     run_baseline,
     run_experiment,
-    triage_vignette_tool,
+    triage_vignette,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ _tools = [
     FunctionTool(func=get_sycophancy_verdict),
     FunctionTool(func=get_gate_fire_rate),
     # Runner — experiment execution
-    FunctionTool(func=triage_vignette_tool),
+    FunctionTool(func=triage_vignette),
     FunctionTool(func=run_baseline),
     FunctionTool(func=run_experiment),
     FunctionTool(func=analyze_run),
