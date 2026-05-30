@@ -14,8 +14,21 @@ BASELINE_SPLIT = "nb_ambiguous"
 
 
 def cmd_baseline(args: argparse.Namespace) -> str:
-    """Sync CLI entrypoint — drives the async baseline on a fresh loop."""
-    return asyncio.run(_cmd_baseline_async(args))
+    """Loop-safe sync entrypoint.
+
+    Works whether or not the calling thread already has a running loop:
+      - no running loop (plain CLI)  -> asyncio.run() on this thread
+      - running loop (ADK run_baseline tool / Jupyter) -> drive on a fresh loop
+        in a worker thread, so asyncio.run() is never called inside a live loop
+    """
+    coro = _cmd_baseline_async(args)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 async def _cmd_baseline_async(args: argparse.Namespace) -> str:

@@ -12,8 +12,21 @@ DATASET_NAME = "yentlbench-quintets-all-variants"
 
 
 def cmd_run(args: argparse.Namespace) -> str:
-    """Sync CLI entrypoint — drives the async sweep on a fresh loop."""
-    return asyncio.run(_cmd_run_async(args))
+    """Loop-safe sync entrypoint.
+
+    Works whether or not the calling thread already has a running loop:
+      - no running loop (plain CLI)  -> asyncio.run() on this thread
+      - running loop (ADK run_experiment tool / Jupyter) -> drive on a fresh
+        loop in a worker thread, so asyncio.run() is never called in a live loop
+    """
+    coro = _cmd_run_async(args)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 async def _cmd_run_async(args: argparse.Namespace) -> str:
