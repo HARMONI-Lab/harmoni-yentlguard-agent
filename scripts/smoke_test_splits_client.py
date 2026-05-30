@@ -117,10 +117,9 @@ def main() -> int:
     # RanExperiment may be a dict or an object depending on client version.
     runs = getattr(experiment, "runs", None)
     if runs is None and isinstance(experiment, dict):
-        runs = experiment.get("runs")
-    print(f"OK   run_experiment created experiment   runs={len(runs) if runs is not None else '?'}")
-    if args.live:
-        print(f"OK   invoked runner on {ran['n']} example(s) (limit={args.limit})")
+        runs = experiment.get("runs") or experiment.get("task_runs")
+    n = len(runs) if runs is not None else getattr(experiment, "task_runs_count", "?")
+    print(f"OK   run_experiment created experiment   runs={n}")
 
     print()
     print("Next: open Phoenix -> Experiments and confirm the new experiment")

@@ -66,7 +66,8 @@ def cmd_run(args: argparse.Namespace) -> str:
 
         for variant in args.variants:
             # Load ONLY this variant's examples via its Split (server-side).
-            dataset = client.datasets.get_dataset(dataset=DATASET_NAME, splits=[variant])            examples = getattr(dataset, "examples", None) or []
+            dataset = client.datasets.get_dataset(dataset=DATASET_NAME, splits=[variant])
+            examples = getattr(dataset, "examples", None) or []
             if not examples:
                 logger.warning(
                     "Split '%s' returned 0 examples — did you create/assign it "
