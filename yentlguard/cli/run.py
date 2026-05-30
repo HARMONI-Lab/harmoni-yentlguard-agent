@@ -1,14 +1,25 @@
 import argparse
 import logging
-from ._common import _build_phoenix_components, _get_completed_vignettes
+import uuid
+
+import phoenix as px
+from phoenix.experiments import run_experiment
+
+from ._common import _build_phoenix_components
 
 logger = logging.getLogger("yentlguard.cli")
 
-def cmd_run(args: argparse.Namespace) -> str:
-    """Execute two-pass mechanistic runs for specified variants."""
-    import pathlib as _pathlib
-    import asyncio
+DATASET_NAME = "yentlbench-quintets-all-variants"
 
+
+def cmd_run(args: argparse.Namespace) -> str:
+    """Run two-pass mechanistic experiments, one per (model, budget, variant).
+
+    Each variant is loaded server-side through its dataset Split, so
+    run_experiment nests every task span under the experiment (proper
+    trace<->experiment linkage) and each variant shows up as its own
+    comparable experiment in Phoenix.
+    """
     import pandas as _pd
     from yentlbench.local_runner.prompt import build_prompt as _build_prompt
 
@@ -19,176 +30,149 @@ def cmd_run(args: argparse.Namespace) -> str:
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
 
-    prompt_mgr, dataset_mgr, expt_registry = _build_phoenix_components()
+    # expt_registry is intentionally dropped: run_experiment creates and links
+    # the experiment for us, so the empty-shell registry is no longer needed.
+    prompt_mgr, dataset_mgr, _ = _build_phoenix_components()
 
     mcp_client = BQBackend(project_name="yentlguard")
+    px_client = px.Client()
 
-    # Fetch dataset metadata to resolve undefined variables
+    # Load the full corpus once for prompt-building + ground-truth lookup.
+    # run_experiment iterates the Split's examples; we map back to the full row
+    # by source_stay_id so _build_prompt receives the format it expects.
     df_all = dataset_mgr.get_vignettes_df()
-    
     if df_all.empty:
-        logger.error("Failed to load vignettes dataset from Phoenix. Ensure the corpus 'yentlbench-quintets-all-variants' is uploaded to Phoenix first.")
+        logger.error(
+            "Failed to load vignettes dataset from Phoenix. Ensure the corpus "
+            "'%s' is uploaded first.",
+            DATASET_NAME,
+        )
         return ""
-    phoenix_dataset_id = dataset_mgr.dataset_id
-    n_per_variant = len(df_all) // len(df_all["gender_variant"].unique())
 
-    # Register the experiment in Phoenix FIRST to obtain the official experiment_id.
-    # Phoenix is now a hard dependency.
-    experiment_id = expt_registry.register(
-        label=(
-            args.label
-            or f"{args.model} {','.join(args.budget)} {','.join(args.variants)}"
-        ),
-        dataset_id=phoenix_dataset_id,
-        model_version=args.model,
-        thinking_budget=args.budget[0] if args.budget else None,
-        variants=args.variants,
-        vignette_count=(
-            n_per_variant * len(args.variants) * len(args.budget)
-        ),
-        notes=args.notes,
-    )
-    logger.info("Experiment registered in Phoenix. experiment_id: %s", experiment_id)
+    row_by_id = {
+        str(int(r["source_stay_id"])): r.to_dict()
+        for _, r in df_all.iterrows()
+    }
 
-    with BQWriter(
-        experiment_id=experiment_id,
-        gate_threshold=args.threshold,
-    ) as bq:
-        bq.register_experiment(
-            label=(
-                args.label
-                or f"{args.model} {','.join(args.budget)} {','.join(args.variants)}"
-            ),
-            models=[args.model],
-            thinking_budgets=args.budget,
-            variants=args.variants,
-            vignette_count=(
-                n_per_variant * len(args.variants) * len(args.budget)
-            ),
-            notes=args.notes,
+    experiment_ids: list[str] = []
+
+    for budget in args.budget:
+        runner = YentlGuardRunner(
+            model_version=args.model,
+            thinking_budget=budget,
+            delta_m_threshold=args.threshold,
+            baseline_lookup=mcp_client,
+            prompt_manager=prompt_mgr,
         )
 
-        for budget in args.budget:
-            runner = YentlGuardRunner(
-                model_version=args.model,
-                thinking_budget=budget,
-                delta_m_threshold=args.threshold,
-                baseline_lookup=mcp_client,
-                prompt_manager=prompt_mgr,
+        for variant in args.variants:
+            # Load ONLY this variant's examples via its Split (server-side).
+            dataset = px_client.get_dataset(name=DATASET_NAME, splits=[variant])
+            examples = getattr(dataset, "examples", None) or []
+            if not examples:
+                logger.warning(
+                    "Split '%s' returned 0 examples — did you create/assign it "
+                    "in the Phoenix UI? Skipping.",
+                    variant,
+                )
+                continue
+
+            label = args.label or f"{args.model} {budget} {variant}"
+            bq_experiment_id = uuid.uuid4().hex
+
+            logger.info(
+                "Running experiment: %s | %d examples | bq_experiment_id=%s",
+                label, len(examples), bq_experiment_id,
             )
 
-            for variant in args.variants:
-                vignettes_df = df_all[df_all["gender_variant"] == variant]
-                completed = _get_completed_vignettes(args.model, budget, variant)
-
-                if completed:
-                    vignettes_df = vignettes_df[
-                        ~vignettes_df["source_stay_id"]
-                        .astype(int)
-                        .astype(str)
-                        .isin(completed)
-                    ]
-                    logger.info(
-                        "Skipped %d already completed vignettes.", len(completed)
-                    )
-
-                if vignettes_df.empty:
-                    logger.info(
-                        "All vignettes done for model=%s budget=%s variant=%s.",
-                        args.model, budget, variant,
-                    )
-                    continue
-
-                logger.info(
-                    "Running %d vignettes | model=%s | budget=%s | variant=%s",
-                    len(vignettes_df), args.model, budget, variant,
+            with BQWriter(
+                experiment_id=bq_experiment_id,
+                gate_threshold=args.threshold,
+            ) as bq:
+                bq.register_experiment(
+                    label=label,
+                    models=[args.model],
+                    thinking_budgets=[budget],
+                    variants=[variant],
+                    vignette_count=len(examples),
+                    notes=args.notes,
                 )
 
-                async def _process_variant(
-                    _vignettes_df=vignettes_df,
+                def task(
+                    example,
                     _variant=variant,
                     _runner=runner,
-                    _exp_id=experiment_id,
+                    _bq=bq,
+                    _exp_id=bq_experiment_id,
                 ):
-                    sem = asyncio.Semaphore(4)
+                    # Resolve the full corpus row for prompt + ground truth.
+                    stay_id = str(int(example.metadata["source_stay_id"]))
+                    vignette = row_by_id.get(stay_id)
+                    if vignette is None:
+                        return {"error": f"stay_id {stay_id} not in corpus"}
 
-                    async def process_row(row):
-                        async with sem:
-                            vignette = row.to_dict()
-                            vignette_id = str(int(vignette["source_stay_id"]))
-                            text = _build_prompt(vignette, _variant)
-                            esi_gt = (
-                                str(int(vignette["acuity"]))
-                                if not _pd.isna(vignette.get("acuity"))
-                                else None
-                            )
-                            clinical_cat = (
-                                str(vignette.get("chiefcomplaint", "")) or None
-                            )
-                            # Pass experiment_id so yentlguard.experiment_id is written on
-                            # every span — required for annotate_spans_with_verdicts.
-                            run = await asyncio.to_thread(
-                                _runner.run,
-                                vignette_id=vignette_id,
-                                vignette_text=text,
-                                demographic_variant=_variant,
-                                experiment_id=_exp_id,
-                            )
-                            bq.write(
-                                run=run,
-                                esi_ground_truth=esi_gt,
-                                clinical_category=clinical_cat,
-                            )
+                    text = _build_prompt(vignette, _variant)
+                    esi_gt = (
+                        str(int(vignette["acuity"]))
+                        if not _pd.isna(vignette.get("acuity"))
+                        else None
+                    )
+                    clinical_cat = str(vignette.get("chiefcomplaint", "")) or None
 
-                            # Force-flush after each vignette so spans are exported
-                            # to Phoenix before the next generate_content call.
-                            # asyncio.to_thread runs in a thread pool, so we flush
-                            # from the async context after the thread returns.
-                            if provider is not None and hasattr(provider, "force_flush"):
-                                try:
-                                    provider.force_flush(timeout_millis=5000)
-                                except Exception as flush_err:
-                                    logger.debug(
-                                        "force_flush warning (non-fatal): %s", flush_err
-                                    )
+                    # Pass experiment_id so yentlguard.experiment_id is written on
+                    # every span (needed for annotate_spans_with_verdicts + BQ).
+                    run = _runner.run(
+                        vignette_id=stay_id,
+                        vignette_text=text,
+                        demographic_variant=_variant,
+                        experiment_id=_exp_id,
+                    )
+                    _bq.write(
+                        run=run,
+                        esi_ground_truth=esi_gt,
+                        clinical_category=clinical_cat,
+                    )
+                    return {
+                        "pass1_esi": run.pass1_esi,
+                        "pass2_esi": run.pass2_esi,
+                        "crr": run.crr.crr if run.crr else None,
+                        "intervention_triggered": run.intervention_triggered,
+                        "errors": run.errors,
+                    }
 
-                            if run.crr:
-                                dist_crrs = [
-                                    r.crr
-                                    for r in [
-                                        run.crr_distractor_a,
-                                        run.crr_distractor_b,
-                                        run.crr_distractor_c,
-                                    ]
-                                    if r is not None
-                                ]
-                                max_dist = max(dist_crrs) if dist_crrs else None
-                                gap_str = (
-                                    f" | gap={run.crr.crr - max_dist:.3f}"
-                                    if max_dist is not None
-                                    else ""
-                                )
-                                logger.info(
-                                    "  %s | CRR=%.3f%s | ESI %s→%s | triggered=%s",
-                                    vignette_id,
-                                    run.crr.crr,
-                                    gap_str,
-                                    run.pass1_esi,
-                                    run.pass2_esi,
-                                    run.intervention_triggered,
-                                )
+                experiment = run_experiment(
+                    dataset=dataset,
+                    task=task,
+                    experiment_name=label,
+                    experiment_metadata={
+                        "model": args.model,
+                        "thinking_budget": budget,
+                        "variant": variant,
+                        "split": variant,
+                        "bq_experiment_id": bq_experiment_id,
+                    },
+                    concurrency=getattr(args, "concurrency", 4),
+                )
 
-                    tasks = [process_row(row) for _, row in _vignettes_df.iterrows()]
-                    await asyncio.gather(*tasks)
+            exp_id = (
+                getattr(experiment, "id", None)
+                or getattr(experiment, "experiment_id", None)
+            )
+            experiment_ids.append(str(exp_id))
+            logger.info("Finished experiment %s (phoenix id=%s)", label, exp_id)
 
-                asyncio.run(_process_variant())
+    # Flush spans before shutdown so every task span reaches Phoenix.
+    if provider is not None and hasattr(provider, "force_flush"):
+        try:
+            provider.force_flush(timeout_millis=10000)
+        except Exception as flush_err:
+            logger.debug("force_flush warning (non-fatal): %s", flush_err)
 
-    logger.info(
-        "Run complete. experiment_id=%s  "
-        "Query: SELECT * FROM `%s` WHERE experiment_id = '%s'",
-        experiment_id, "runs", experiment_id,
-    )
     if provider and not getattr(args, "skip_shutdown", False):
         provider.shutdown()
-        
-    return experiment_id
+
+    logger.info(
+        "Run complete. %d experiment(s): %s",
+        len(experiment_ids), ", ".join(experiment_ids),
+    )
+    return ",".join(experiment_ids)

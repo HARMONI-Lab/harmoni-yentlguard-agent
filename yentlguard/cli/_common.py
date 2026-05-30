@@ -5,7 +5,10 @@ logger = logging.getLogger("yentlguard.cli")
 
 _DEFAULT_PHOENIX_MCP_ENDPOINT = "https://app.phoenix.arize.com"
 
+
 def _get_completed_vignettes(model: str, budget: str, variant: str) -> set[str]:
+    # Retained for baseline.py / resumption use. cmd_run no longer calls this
+    # because run_experiment iterates the full dataset.
     from google.cloud import bigquery
     from yentlguard.config import GCP_PROJECT_ID, RUNS_TABLE
 
@@ -31,13 +34,16 @@ def _get_completed_vignettes(model: str, budget: str, variant: str) -> set[str]:
         logger.warning("Failed to check completed vignettes: %s", e)
         return set()
 
+
 def _build_phoenix_components():
     """
     Instantiate PhoenixPromptManager, PhoenixDatasetManager, and
     PhoenixExperimentRegistry. Returns (prompt_mgr, dataset_mgr, expt_registry).
 
-    All three return usable objects regardless of Phoenix availability —
-    each degrades gracefully when Phoenix is unreachable.
+    NOTE: cmd_run (Option A) no longer uses expt_registry, but cmd_baseline
+    still calls expt_registry.register(...). So this keeps returning the
+    3-tuple; run.py simply ignores the third element. All three degrade
+    gracefully when Phoenix is unreachable.
     """
     from yentlguard.mcp.phoenix_manager import (
         PhoenixDatasetManager,

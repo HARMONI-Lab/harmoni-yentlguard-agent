@@ -458,28 +458,18 @@ class PhoenixDatasetManager:
             return pd.DataFrame()
 
         try:
-            # Instead of trying to get the dataset object, directly get examples
-            # Make HTTP request to get examples since the client method isn't working
-            import httpx
-            import json
-            
-            # Build the examples URL
-            examples_url = f"{self._base_url}/v1/datasets/{dataset_id}/examples"
-            headers = {}
-            if self._api_key:
-                headers["authorization"] = f"Bearer {self._api_key}"
-            
-            response = httpx.get(examples_url, headers=headers, timeout=30)
-            response.raise_for_status()
-            
-            # Parse the JSON response
-            data = response.json()
-            examples = data.get("data", []) if isinstance(data, dict) else []
-            
-            # Phoenix returns examples as a list of objects or dicts.
-            # Normalise to a list of flat dicts.
+            # Pull the dataset (and its examples) directly via the Phoenix SDK.
+            # get_dataset accepts a dataset id OR name and returns a Dataset whose
+            # .examples is a list of {id, input, output, metadata} dicts — already
+            # parsed, so there's no REST envelope to unwrap by hand.
+            dataset = self._client.datasets.get_dataset(dataset=dataset_id)
+            examples = getattr(dataset, "examples", None) or []
+
             rows = []
             for ex in examples:
+                # Examples are dicts in current Phoenix; tolerate SDK objects too.
+                if not isinstance(ex, dict):
+                    ex = getattr(ex, "__dict__", {}) or {}
                 if isinstance(ex, dict):
                     # Flatten the example structure
                     flat = {}
