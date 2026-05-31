@@ -1,0 +1,11 @@
+.venv
+__pycache__
+.git
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.env
+dataset_output
+yentlguard_analysis
+public
+*.html
