@@ -12,12 +12,23 @@ DATASET_NAME = "yentlbench-quintets-all-variants"
 
 
 def cmd_run(args: argparse.Namespace) -> str:
-    """Loop-safe sync entrypoint.
-
-    Works whether or not the calling thread already has a running loop:
-      - no running loop (plain CLI)  -> asyncio.run() on this thread
-      - running loop (ADK run_experiment tool / Jupyter) -> drive on a fresh
+    """
+    Execute YentlGuard mechanistic runs with loop-safe async handling.
+    
+    Works whether or not the calling thread already has a running event loop:
+      - No running loop (plain CLI) -> asyncio.run() on this thread
+      - Running loop (ADK run_experiment tool / Jupyter) -> drive on a fresh
         loop in a worker thread, so asyncio.run() is never called in a live loop
+        
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command line arguments containing run configuration.
+        
+    Returns
+    -------
+    str
+        Comma-separated list of experiment IDs that were executed.
     """
     coro = _cmd_run_async(args)
     try:

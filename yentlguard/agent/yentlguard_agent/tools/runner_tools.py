@@ -180,13 +180,6 @@ def analyze_run(
     all metrics (PSS, H1, H3, H5), applies statistical tests, and writes
     the results to disk for inspection.
 
-    Args:
-        experiment_ids: One or more experiment batch IDs to include.
-        output_dir: Directory to write the HTML report and CSVs to.
-
-    Returns:
-        JSON object with output_dir, experiment_ids, and status on success.
-
     Pull completed run data from BigQuery, compute H1-H5 summary statistics,
     and write a self-contained HTML report plus CSV files to the output directory.
 

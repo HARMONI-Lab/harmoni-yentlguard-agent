@@ -1,0 +1,23 @@
+[project]
+# Enable persistent chat history
+enable_telemetry = false
+
+[features]
+# Show tool call inputs and outputs
+spontaneous_file_upload.enabled = false
+audio.enabled = false
+# Keep sidebar open by default
+element_sidebar.default_open = true
+
+[UI]
+name = "YentlGuard"
+description = "Mechanistic interpretability for clinical triage LLM bias · HARMONI Lab"
+default_collapse_content = false
+hide_cot = false
+# Custom CSS loaded from public/
+custom_css = "/public/theme.css"
+# Sidebar width — wide enough for the report viewer
+element_sidebar_width = 55
+
+[meta]
+generated_by = "1.0.0"

@@ -128,8 +128,9 @@ def annotate_spans_with_verdicts(
                                likely_sycophancy (default 0.1).
 
     Returns:
-        JSON with n_annotated, n_skipped, sample_span_ids (for MCP verification),
-        and any errors encountered.
+        JSON with n_annotated, n_skipped, sample_span_ids (for MCP verification).
+        Also returns a structured JSON object with a "status" or "error" message 
+        for edge cases (e.g., no spans found or missing data).
     """
     from google.cloud import bigquery
 
