@@ -1,0 +1,26 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui']
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'deploy'
+  - 'yentlguard-ui'
+  - '--image'
+  - 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui'
+  - '--region'
+  - 'us-central1'
+  - '--min-instances'
+  - '1'
+  - '--max-instances'
+  - '3'
+  - '--allow-unauthenticated'
+  - '--set-env-vars'
+  - 'PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/yentlguard/,PHOENIX_MCP_ENDPOINT=https://app.phoenix.arize.com/s/yentlguard/,GEMINI_MODEL=gemini-2.5-pro,YENTLGUARD_GCP_PROJECT=yentlguard,YENTLGUARD_BQ_DATASET=yentlguard'
+  - '--set-secrets'
+  - 'PHOENIX_API_KEY=PHOENIX_API_KEY:latest'
+images:
+- 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui'
