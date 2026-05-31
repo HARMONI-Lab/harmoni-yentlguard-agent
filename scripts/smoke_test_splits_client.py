@@ -78,7 +78,10 @@ def main() -> int:
             prompt_manager=prompt_mgr,
         )
         df_all = dataset_mgr.get_vignettes_df()
-        row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
+        row_by_id = {
+            (str(int(r["source_stay_id"])), r.get("demographic_variant", r.get("gender_variant", ""))): r.to_dict()
+            for _, r in df_all.iterrows()
+        }
 
     ran = {"n": 0}
 
@@ -90,11 +93,15 @@ def main() -> int:
         if not args.live or ran["n"] >= args.limit:
             return {"smoke": "stub", "variant": args.split}
         ran["n"] += 1
-        from yentlguard.prompting.prompt import build_prompt
-
         stay_id = str(int(metadata["source_stay_id"]))
-        vignette = row_by_id.get(stay_id)
-        text = build_prompt(vignette, args.split) if vignette else input["vignette_text"]
+        vignette = row_by_id.get((stay_id, args.split)) if row_by_id else None
+        
+        text = input.get("vignette_text")
+        if not text and vignette:
+            text = vignette.get("vignette_text")
+        if not text:
+            text = input.get("vignette_text", "")
+
         run = runner.run(
             vignette_id=stay_id,
             vignette_text=text,

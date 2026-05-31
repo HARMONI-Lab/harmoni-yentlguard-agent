@@ -127,7 +127,7 @@ class PhoenixPromptManager:
         base_url: str | None = None,
         api_key: str | None = None,
     ):
-        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
         self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
         self._client = None
         self._cache: dict[str, str] = {}
@@ -336,7 +336,7 @@ class PhoenixDatasetManager:
         api_key: str | None = None,
         corpus_dataset_name: str = _CORPUS_DATASET_NAME,
     ):
-        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
         self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
         self._corpus_dataset_name = corpus_dataset_name
         self._client = None

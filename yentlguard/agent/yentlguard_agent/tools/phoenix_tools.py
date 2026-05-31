@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 def _get_phoenix_client() -> "Any | None":
     """Return a Phoenix client or None if unavailable."""
-    base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+    base_url = os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
     api_key = os.environ.get("PHOENIX_API_KEY", "")
     try:
         from phoenix.client import Client
@@ -179,7 +179,7 @@ def annotate_spans_with_verdicts(
     # Uses Python client rather than Phoenix MCP get-spans because MCP does
     # not support custom attribute filtering. The agent can call get-spans
     # or get-span-annotations on specific span_id from sample_span_ids below.
-    base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+    base_url = os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
     api_key = os.environ.get("PHOENIX_API_KEY", "")
 
     client = _get_phoenix_client()
@@ -266,7 +266,7 @@ def annotate_spans_with_verdicts(
 #     # Uses Python client rather than Phoenix MCP get-spans because MCP does
 #     # not support custom attribute filtering. The agent can call get-spans
 #     # or get-span-annotations on specific span_ids from sample_span_ids below.
-#     base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+#     base_url = os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
 #     api_key = os.environ.get("PHOENIX_API_KEY", "")
 #
 #     client = _get_phoenix_client()
@@ -480,8 +480,6 @@ def create_anomaly_dataset(
     vignette_ids = df_ids["vignette_id"].astype(str).tolist()
 
     try:
-        from yentlguard.prompting.prompt import build_prompt as _build_prompt
-
         full_df = PhoenixDatasetManager().get_vignettes_df()
         if full_df.empty:
             return json.dumps(
@@ -509,16 +507,25 @@ def create_anomaly_dataset(
 
         rows = []
         for variant in variants:
-            vdf = full_df[full_df["source_stay_id"].astype(str).isin(vignette_ids)].copy()
+            mask_id = full_df["source_stay_id"].astype(str).isin(vignette_ids)
+            mask_variant = (full_df["demographic_variant"] == variant) if "demographic_variant" in full_df else (full_df["gender_variant"] == variant)
+            vdf = full_df[mask_id & mask_variant].copy()
+            
             if vdf.empty:
                 continue
-            vdf["vignette_text"] = vdf.apply(lambda r: _build_prompt(r.to_dict(), variant), axis=1)
-            vdf["esi_ground_truth"] = vdf["acuity"].apply(
-                lambda v: str(int(v)) if pd.notna(v) else None
-            )
-            vdf["clinical_category"] = vdf.get("chiefcomplaint", pd.Series(dtype=str)).fillna("")
+                
+            if "acuity" in vdf.columns and "esi_ground_truth" not in vdf.columns:
+                vdf["esi_ground_truth"] = vdf["acuity"].apply(
+                    lambda v: str(int(v)) if pd.notna(v) else None
+                )
+            if "chiefcomplaint" in vdf.columns and "clinical_category" not in vdf.columns:
+                vdf["clinical_category"] = vdf["chiefcomplaint"].fillna("")
+            elif "clinical_category" not in vdf.columns:
+                vdf["clinical_category"] = ""
+                
             vdf["source_stay_id"] = vdf["source_stay_id"].astype(str)
             vdf["demographic_variant"] = variant
+            
             rows.append(
                 vdf[
                     [
@@ -594,7 +601,7 @@ def list_prompt_versions(prompt_name: str) -> str:
     """
     from yentlguard.mcp.phoenix_manager import _PROMPT_NAMES
 
-    base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+    base_url = os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
     api_key = os.environ.get("PHOENIX_API_KEY", "")
 
     phoenix_name = _PROMPT_NAMES.get(prompt_name)

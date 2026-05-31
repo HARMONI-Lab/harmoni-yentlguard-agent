@@ -1,5 +1,7 @@
 # YentlGuard
 
+python -m yentlguard.mcp.setup_phoenix --dataset dataset_output/dataset_quintets.csv
+
 **Mechanistic interpretability and sycophancy-controlled bias analysis for clinical triage LLMs.**
 
 Built by [HARMONI Lab](https://harmonilab.org) on top of [YentlBench](https://github.com/harmonilab/yentlbench).

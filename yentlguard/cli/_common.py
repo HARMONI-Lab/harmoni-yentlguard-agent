@@ -15,7 +15,7 @@ def _build_phoenix_components():
         PhoenixPromptManager,
     )
 
-    base_url = os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+    base_url = os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
     api_key = os.environ.get("PHOENIX_API_KEY", "")
 
     prompt_mgr = PhoenixPromptManager(base_url=base_url, api_key=api_key)

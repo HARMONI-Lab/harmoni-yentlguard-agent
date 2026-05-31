@@ -43,7 +43,6 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
 
     from yentlguard.agent.runner import YentlGuardRunner
     from yentlguard.eval.bq_writer import BQWriter
-    from yentlguard.prompting.prompt import build_prompt as _build_prompt
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
@@ -59,7 +58,10 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
         )
         raise SystemExit(1)
 
-    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
+    row_by_id = {
+        (str(int(r["source_stay_id"])), r.get("demographic_variant", r.get("gender_variant", ""))): r.to_dict()
+        for _, r in df_all.iterrows()
+    }
 
     split_name = getattr(args, "split", None) or BASELINE_SPLIT
     dataset = await client.datasets.get_dataset(dataset=DATASET_NAME, splits=[split_name])
@@ -88,11 +90,16 @@ async def _cmd_baseline_async(args: argparse.Namespace) -> str:
         # Split already restricts to nb_ambiguous; keep a defensive default.
         variant = input.get("demographic_variant", BASELINE_VARIANT)
         stay_id = str(int(metadata["source_stay_id"]))
-        vignette = row_by_id.get(stay_id)
+        vignette = row_by_id.get((stay_id, variant))
         if vignette is None:
-            return {"error": f"stay_id {stay_id} not in corpus"}
+            return {"error": f"stay_id {stay_id} not in corpus for variant {variant}"}
 
-        text = _build_prompt(vignette, variant)
+        text = input.get("vignette_text")
+        if not text:
+            text = vignette.get("vignette_text")
+        if not text:
+            return {"error": f"vignette_text missing for stay_id {stay_id}"}
+
         # Await arun() directly — same loop, so the runner's spans nest under
         # this task's span (no thread hop, no asyncio.run, no nest_asyncio).
         run = await _runner.arun(

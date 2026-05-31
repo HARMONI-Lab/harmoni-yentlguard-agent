@@ -47,7 +47,6 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
     from yentlguard.agent.runner import YentlGuardRunner
     from yentlguard.eval.bq_writer import BQWriter
     from yentlguard.mcp.baseline_lookup import BQBackend
-    from yentlguard.prompting.prompt import build_prompt as _build_prompt
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
@@ -64,7 +63,10 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
         )
         return ""
 
-    row_by_id = {str(int(r["source_stay_id"])): r.to_dict() for _, r in df_all.iterrows()}
+    row_by_id = {
+        (str(int(r["source_stay_id"])), r.get("demographic_variant", r.get("gender_variant", ""))): r.to_dict()
+        for _, r in df_all.iterrows()
+    }
 
     experiment_ids: list[str] = []
 
@@ -95,11 +97,16 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
             # Bind variant + runner as defaults so each task closes over its own.
             async def task(input, metadata, _variant=variant, _runner=runner):
                 stay_id = str(int(metadata["source_stay_id"]))
-                vignette = row_by_id.get(stay_id)
+                vignette = row_by_id.get((stay_id, _variant))
                 if vignette is None:
-                    return {"error": f"stay_id {stay_id} not in corpus"}
+                    return {"error": f"stay_id {stay_id} not in corpus for variant {_variant}"}
 
-                text = _build_prompt(vignette, _variant)
+                text = input.get("vignette_text")
+                if not text:
+                    text = vignette.get("vignette_text")
+                if not text:
+                    return {"error": f"vignette_text missing for stay_id {stay_id}"}
+                
                 run = await _runner.arun(
                     vignette_id=stay_id,
                     vignette_text=text,
