@@ -1,14 +1,22 @@
-# Welcome to Chainlit! 🚀🤖
+# YentlGuard
 
-Hi there, Developer! 👋 We're excited to have you on board. Chainlit is a powerful tool designed to help you prototype, debug and share applications built on top of LLMs.
+**Mechanistic interpretability for clinical-triage LLM bias** 
 
-## Useful Links 🔗
+YentlGuard probes how clinical-triage language models shift confidence under
+demographic and sycophancy pressure — and surfaces it with measurable signals:
 
-- **Documentation:** Get started with our comprehensive [Chainlit Documentation](https://docs.chainlit.io) 📚
-- **Discord Community:** Join our friendly [Chainlit Discord](https://discord.gg/k73SQ3FyUh) to ask questions, share your projects, and connect with other developers! 💬
+- **ΔM** — confidence-margin shift between paired vignettes
+- **CRR** — confidence recovery rate after a corrective prompt
+- **TAR** — thought-allocation ratio across reasoning traces
+- **Sycophancy gap** — divergence under social pressure
 
-We can't wait to see what you create with Chainlit! Happy coding! 💻😊
+### How to drive this console
 
-## Welcome screen
+1. Pick a **starter prompt** below the composer, or type your own.
+2. Watch the **Agent Flow** trace stream in real time — every supervisor →
+   sub-agent → tool hop is shown with timing and status.
+3. When an analysis finishes, the **report opens automatically** in the right
+   panel (zoom, fullscreen, open, download from its toolbar).
 
-To modify the welcome screen, edit the `chainlit.md` file at the root of your project. If you do not want a welcome screen, just leave this file empty.
+> Running without GCP credentials? The console drops into a self-contained
+> **mock mode** that exercises the full multi-agent flow with demo data.

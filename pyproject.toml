@@ -88,7 +88,7 @@ notebook = [
     "plotly>=5.22.0",
 ]
 ui = [
-    "chainlit>=1.0.0",
+    "chainlit>=2.0.0,<3.0.0",
 ]
 
 [project.scripts]

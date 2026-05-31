@@ -616,7 +616,7 @@ def generate_html_report(
 <body>
 
 <header class="report-header">
-  <div class="header-lab">HARMONI Lab · YentlGuard</div>
+  <div class="header-lab">YentlGuard</div>
   <h1 class="header-title">Mechanistic Interpretability<br>Analysis Report</h1>
   <p class="header-subtitle">
     Token-level confidence margins, Thought Allocation Ratios, and Confidence Recovery Rates

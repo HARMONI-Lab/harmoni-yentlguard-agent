@@ -15,8 +15,7 @@ from yentlguard.metrics.tar import compute_tar
 from yentlguard.telemetry.phoenix import setup_phoenix_tracing
 
 __version__ = "0.1.0"
-__author__ = "Inna Campo"
-__lab__ = "HARMONI Lab"
+__author__ = "Inna Rytsareva"
 
 __all__ = [
     "compute_delta_m",
