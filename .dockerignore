@@ -7,6 +7,6 @@ __pycache__
 .env
 dataset_output
 yentlguard_analysis
-public
+/public
 *.html
-public/reports/
+/public/reports/
