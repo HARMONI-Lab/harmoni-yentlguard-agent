@@ -6,7 +6,7 @@ YentlGuard provides a structured evaluation pipeline and an agent framework to a
 
 It leverages [Arize Phoenix](https://phoenix.arize.com/) for deep telemetry, prompt management, and experiment tracking, while persisting evaluation runs directly to Google BigQuery for further analysis and reporting.
 
-## 🚀 Features
+## Features
 
 - **Mechanistic Evaluation:** Run two-pass mechanistic tests (baseline and variants) using YentlBench vignettes.
 - **Arize Phoenix Integration:** Comprehensive tracing, span annotation, dataset management, and prompt versioning.
@@ -14,7 +14,7 @@ It leverages [Arize Phoenix](https://phoenix.arize.com/) for deep telemetry, pro
 - **ADK Agent Framework:** Built-in AI Agent powered by `google-adk` for interaction and deeper analysis.
 - **Detailed Analytics:** Automatically pull BigQuery run data, compute hypotheses (H1–H5), and generate HTML reports and CSV summaries.
 
-## 📦 Installation
+## Installation
 
 Requires Python 3.11+. We recommend using a virtual environment.
 
@@ -30,7 +30,7 @@ pip install .
 pip install .[dev,notebook,ui]
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 YentlGuard requires environment variables for GCP and Arize Phoenix configuration.
 
@@ -53,7 +53,7 @@ GEMINI_MODEL=gemini-2.5-pro
 
 Alternatively, you can edit `yentlguard/config.py` directly, though using environment variables is recommended.
 
-## 🛠️ Usage / CLI Commands
+## Usage / CLI Commands
 
 YentlGuard is driven primarily via its CLI: `yentlguard`.
 
@@ -92,7 +92,7 @@ yentlguard agent
 yentlguard agent --query "Analyze the recent triage run for bias."
 ```
 
-## 📊 Development & Testing
+## Development & Testing
 
 If you are developing YentlGuard, you can use the provided tools:
 
@@ -100,10 +100,10 @@ If you are developing YentlGuard, you can use the provided tools:
 - **Type Checking:** `mypy .`
 - **Testing:** `pytest tests/`
 
-## 📄 License
+## License
 
 This project is licensed under the [Apache 2.0 License](LICENSE).
 
-## 🤝 Authors
+## Authors
 
 - Inna Rytsareva (<inna@harmonilab.org>) - [HarmoniLab](https://harmonilab.org)

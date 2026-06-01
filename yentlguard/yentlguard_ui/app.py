@@ -500,7 +500,7 @@ async def on_message(message: cl.Message):
                     if new_report_uri and new_report_uri != cl.user_session.get("current_report"):
                         await _push_report_to_sidebar_from_uri(new_report_uri)
                         await cl.Message(
-                            content=f"📊 Report loaded → right panel · `{new_report_uri.split('/')[-1]}`",
+                            content=f"Report loaded → right panel · `{new_report_uri.split('/')[-1]}`",
                             author="YentlGuard",
                         ).send()
                 except json.JSONDecodeError:
@@ -664,7 +664,7 @@ async def _handle_mock(query: str):
             if str(report) != cl.user_session.get("current_report"):
                 await _push_report_to_sidebar_mock(report)
                 await cl.Message(
-                    content=f"📊 Report loaded → right panel · `{report.name}`",
+                    content=f"Report loaded → right panel · `{report.name}`",
                     author="YentlGuard",
                 ).send()
 
