@@ -38,8 +38,6 @@ _FENCE = chr(96) * 3
 
 
 # -- ADK runner setup ----------------------------------------------------------
-# Import lazily so the app starts even without a full YentlGuard install,
-# falling back to a mock runner for UI development.
 try:
     from google.adk.runners import InMemoryRunner
     from google.genai import types as genai_types
@@ -82,10 +80,12 @@ def _find_latest_report():
 
 
 async def _push_report_to_sidebar(report_path: Path) -> None:
+    """Push report HTML into the ElementSidebar.
+
+    Always sets current_report in session so _ensure_sidebar can compare.
+    """
     parent_name = report_path.parent.name
     rel = f"/public/reports/{parent_name}/{report_path.name}"
-    # Embed the report HTML directly (srcDoc) so it never depends on Chainlit
-    # static-file serving / symlinks (which can return {"detail":"Invalid filename"}).
     try:
         html = report_path.read_text(encoding="utf-8")
     except OSError:
@@ -104,41 +104,30 @@ async def _push_report_to_sidebar(report_path: Path) -> None:
     )
     await cl.ElementSidebar.set_title("ANALYSIS REPORT")
     await cl.ElementSidebar.set_elements([report_el], key="report-panel")
-    # Remember the active report so it stays pinned on later turns.
     cl.user_session.set("current_report", str(report_path))
-
-
-async def _push_welcome_sidebar() -> None:
-    welcome_el = cl.CustomElement(
-        name="InstrumentPanel",
-        props={
-            "status": "READY",
-            "model": os.environ.get("GEMINI_MODEL", "gemini-2.5-pro"),
-            "project": os.environ.get("YENTLGUARD_GCP_PROJECT", "—"),
-            "phoenix": os.environ.get("PHOENIX_BASE_URL", "—"),
-        },
-        display="inline",
-    )
-    await cl.ElementSidebar.set_title("YENTLGUARD")
-    await cl.ElementSidebar.set_elements([welcome_el], key="instrument-panel")
 
 
 async def _ensure_sidebar() -> None:
     """Keep the analysis panel pinned across turns.
 
-    Chainlit can drop / collapse the ElementSidebar when a new message starts,
-    which makes the report appear to "close". Re-assert whatever should show:
-    the active report if one has loaded, otherwise the welcome panel.
+    Only re-pushes if a NEW report has appeared since the last push.
+    If the same report is already displayed, this is a no-op — prevents
+    unnecessary sidebar flicker on every turn.
     """
     current = cl.user_session.get("current_report")
-    if current and Path(current).exists():
-        await _push_report_to_sidebar(Path(current))
-        return
     latest = _find_latest_report()
-    if latest:
-        await _push_report_to_sidebar(latest)
-    else:
-        await _push_welcome_sidebar()
+
+    if latest is None:
+        # No reports exist yet — do nothing, no welcome screen.
+        return
+
+    latest_str = str(latest)
+    if latest_str == current:
+        # Same report already pinned — leave it alone.
+        return
+
+    # A new (or first) report is available — push it.
+    await _push_report_to_sidebar(latest)
 
 
 # -- Metric extraction ---------------------------------------------------------
@@ -341,6 +330,8 @@ async def starters():
 async def on_start():
     session_id = secrets.token_hex(8)
     cl.user_session.set("session_id", session_id)
+    # current_report starts as None so _ensure_sidebar will push on first turn.
+    cl.user_session.set("current_report", None)
 
     if _ADK_AVAILABLE:
         await _runner.session_service.create_session(
@@ -349,23 +340,22 @@ async def on_start():
             session_id=session_id,
         )
 
-    existing_report = _find_latest_report()
-    if existing_report:
-        await _push_report_to_sidebar(existing_report)
-    else:
-        await _push_welcome_sidebar()
+    # Always load the latest report immediately. No welcome screen ever.
+    latest = _find_latest_report()
+    if latest:
+        await _push_report_to_sidebar(latest)
+    # If no report exists yet, sidebar stays empty — no welcome panel.
 
     # IMPORTANT: do NOT send a cl.Message() here. Chainlit only renders the
     # @cl.set_starters prompts while the thread is EMPTY — sending any message
-    # on chat start makes the thread non-empty and hides the starters. The
-    # welcome copy lives in chainlit.md, which shows on the empty starter screen.
+    # on chat start makes the thread non-empty and hides the starters.
 
 
 @cl.on_message
 async def on_message(message: cl.Message):
     session_id = cl.user_session.get("session_id")
 
-    # Pin the report/instrument panel so it doesn't close when a turn starts.
+    # Check for a NEW report only — no-op if same report is already pinned.
     await _ensure_sidebar()
 
     if not _ADK_AVAILABLE:
@@ -473,7 +463,7 @@ async def on_message(message: cl.Message):
             if entry["tool"] == "analyze_run":
                 await asyncio.sleep(0.8)  # let the filesystem flush
                 new_report = _find_latest_report()
-                if new_report:
+                if new_report and str(new_report) != cl.user_session.get("current_report"):
                     await _push_report_to_sidebar(new_report)
                     await cl.Message(
                         content=f"📊 Report loaded → right panel · `{new_report.name}`",
@@ -516,7 +506,7 @@ async def on_message(message: cl.Message):
         await cl.Message(content="", elements=[metric_el],
                          author="YentlGuard").send()
 
-    # Re-assert the report panel so it remains visible after the turn.
+    # End-of-turn sidebar check: only update if a NEW report was written.
     await _ensure_sidebar()
 
 
@@ -632,11 +622,13 @@ async def _handle_mock(query: str):
         if tool == "analyze_run":
             report = _write_demo_report()
             await asyncio.sleep(0.3)
-            await _push_report_to_sidebar(report)
-            await cl.Message(
-                content=f"📊 Report loaded → right panel · `{report.name}`",
-                author="YentlGuard",
-            ).send()
+            # Only push if this is genuinely new.
+            if str(report) != cl.user_session.get("current_report"):
+                await _push_report_to_sidebar(report)
+                await cl.Message(
+                    content=f"📊 Report loaded → right panel · `{report.name}`",
+                    author="YentlGuard",
+                ).send()
 
     orchestration.output = (f"{flow_state['agents']} agent(s) · "
                             f"{flow_state['tools']} tool call(s) · "
@@ -670,5 +662,5 @@ async def _handle_mock(query: str):
     await cl.Message(content="", elements=[metric_el],
                      author="YentlGuard").send()
 
-    # Re-assert the report panel so it remains visible after the mock turn.
+    # End-of-turn sidebar check: only update if a NEW report appeared.
     await _ensure_sidebar()

@@ -1,0 +1,99 @@
+/*
+ * YentlGuard — layout overrides for Chainlit
+ *
+ * Enforces a permanent 25 / 75 split:
+ *   left  (chat)   → 25%
+ *   right (report) → 75%
+ *
+ * Drop this file at:  <project-root>/public/custom.css
+ * Chainlit picks it up automatically at startup.
+ */
+
+/* ─── Hide every welcome / empty-state surface ─────────────────────────── */
+[class*="WelcomeScreen"],
+[class*="welcome-screen"],
+[class*="emptyThread"],
+[class*="empty-thread"],
+[class*="EmptyState"],
+[class*="empty-state"],
+[class*="placeholder"],
+[class*="Placeholder"] {
+  display: none !important;
+}
+
+/* Also nuke the chainlit.md "readme" button / panel if visible */
+button[aria-label="Readme"],
+[class*="ReadmeButton"],
+[class*="readme-button"] {
+  display: none !important;
+}
+
+/* ─── Root layout: make sidebar occupy 75% of the viewport ─────────────── */
+
+/*
+ * Chainlit renders roughly:
+ *   <div id="root">
+ *     <main>           ← chat column
+ *     <aside>          ← ElementSidebar (right panel)
+ *
+ * We target the sidebar aside and constrain the chat main accordingly.
+ */
+
+/* Give the flex container full height so percentage widths work */
+#root > div,
+#root > div > div {
+  display: flex !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+
+/* Chat column — 25% */
+#root main,
+[class*="threadContainer"],
+[class*="thread-container"],
+[class*="chatContainer"],
+[class*="chat-container"] {
+  flex: 0 0 25% !important;
+  min-width: 0 !important;
+  max-width: 25% !important;
+  width: 25% !important;
+  overflow-y: auto !important;
+}
+
+/* Sidebar column — 75% */
+[class*="ElementSidebar"],
+[class*="element-sidebar"],
+[class*="sidebarContainer"],
+[class*="sidebar-container"],
+aside[class*="sidebar"],
+div[class*="sidebar"] {
+  flex: 0 0 75% !important;
+  min-width: 0 !important;
+  max-width: 75% !important;
+  width: 75% !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* Sidebar inner scroll area — fill the panel */
+[class*="ElementSidebar"] > *,
+[class*="element-sidebar"] > * {
+  flex: 1 1 auto !important;
+  overflow: auto !important;
+  height: 100% !important;
+}
+
+/* Keep the sidebar visible even when "empty" from Chainlit's perspective */
+[class*="ElementSidebar"][style*="display: none"],
+[class*="element-sidebar"][style*="display: none"] {
+  display: flex !important;
+}
+
+/* ─── Starter-prompt buttons: keep them at the bottom of the chat col ─── */
+[class*="starters"],
+[class*="Starters"] {
+  position: sticky !important;
+  bottom: 0 !important;
+}
