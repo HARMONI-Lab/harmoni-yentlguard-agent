@@ -48,6 +48,7 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
     from yentlguard.eval.bq_writer import BQWriter
     from yentlguard.mcp.baseline_lookup import BQBackend
     from yentlguard.telemetry.phoenix import setup_phoenix_tracing
+    from yentlguard.config import GCS_BUCKET
 
     provider = setup_phoenix_tracing(project_name="yentlguard-runs")
     prompt_mgr, dataset_mgr = _build_phoenix_components()
@@ -144,7 +145,7 @@ async def _cmd_run_async(args: argparse.Namespace) -> str:
             phoenix_id = _extract_experiment_id(experiment)
             experiment_ids.append(str(phoenix_id))
 
-            with BQWriter(experiment_id=phoenix_id, gate_threshold=args.threshold) as bq:
+            with BQWriter(experiment_id=phoenix_id, bucket_name=GCS_BUCKET, gate_threshold=args.threshold) as bq:
                 bq.register_experiment(
                     label=label,
                     models=[args.model],

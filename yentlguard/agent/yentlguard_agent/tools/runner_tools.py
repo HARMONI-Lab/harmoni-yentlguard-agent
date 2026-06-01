@@ -170,18 +170,16 @@ def run_experiment(
 
 def analyze_run(
     experiment_ids: list[str],
-    output_dir: str = "yentlguard_analysis",
 ) -> str:
     """
     Generate the full HTML analysis report and raw CSV outputs for one or more
     completed experiment batches.
 
-    This wraps the 'yentlguard analyze' CLI command. It queries BigQuery for
-    all metrics (PSS, H1, H3, H5), applies statistical tests, and writes
-    the results to disk for inspection.
+    This queries BigQuery for all metrics (PSS, H1, H3, H5), applies statistical tests,
+    and streams the results to GCS, returning the signed URLs.
 
     Pull completed run data from BigQuery, compute H1-H5 summary statistics,
-    and write a self-contained HTML report plus CSV files to the output directory.
+    and write a self-contained HTML report plus CSV files to GCS.
 
     Use this when the user asks for a full report on one or more completed runs.
     For targeted metric queries (PSS, sycophancy verdicts, gate rates), use the
@@ -189,39 +187,40 @@ def analyze_run(
 
     Args:
         experiment_ids: One or more experiment batch IDs to include.
-        output_dir: Directory to write the HTML report and CSVs to.
 
     Returns:
-        JSON object with output_dir, experiment_ids, and status on success.
+        JSON object with experiment_ids and status on success.
     """
-    from yentlguard.config import validate
-
+    from yentlguard.config import validate, GCS_BUCKET
+    from yentlguard.eval.analyze import Analyzer
+    from yentlguard.eval.report import generate_html_report
+    from yentlguard.eval.export import export_csvs
+    from datetime import datetime, timezone
+    
     try:
         validate()
     except RuntimeError as e:
         return f"Error: GCP config incomplete — {e}"
 
-    import argparse
+    logger.info(f"Agent triggered analyze_run(experiment_ids={experiment_ids})")
 
-    from yentlguard.cli import cmd_analyze
-
-    logger.info(f"Agent triggered analyze_run(experiment_ids={experiment_ids}, output_dir={output_dir})")
-
-    args = argparse.Namespace(
-        experiment_ids=experiment_ids,
-        output=output_dir,
-        register_eval=False,
-        label=None,
-        notes=None,
-    )
     try:
-        cmd_analyze(args)
+        analyzer = Analyzer()
+        result = analyzer.run(experiment_ids=experiment_ids)
+        if result.raw_pass1.empty:
+             return f"Error: No data found for experiment_ids={experiment_ids}."
+        
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        report_uri = generate_html_report(result, bucket_name=GCS_BUCKET, experiment_ids=experiment_ids)
+        csv_uris = export_csvs(result, bucket_name=GCS_BUCKET, timestamp=timestamp)
+        
         return json.dumps(
             {
                 "status": "complete",
-                "output_dir": output_dir,
+                "report_uri": report_uri,
+                "csv_uris": csv_uris,
                 "experiment_ids": experiment_ids,
-                "next_steps": f"Analysis written to {output_dir}/. You can read the HTML report or CSVs to interpret the results.",
+                "next_steps": "Analysis written to GCS. The report is ready to view.",
             }
         )
     except Exception as e:

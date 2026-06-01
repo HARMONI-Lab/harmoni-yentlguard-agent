@@ -15,8 +15,9 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 
 def cmd_analyze(args: argparse.Namespace) -> None:
+    from yentlguard.config import GCS_BUCKET
+
     experiment_ids: list[str] = args.experiment_ids
-    output_path = Path(args.output)
 
     if not experiment_ids:
         logger.error("No --experiment-ids provided.")
@@ -33,13 +34,13 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
-    html_path = generate_html_report(
-        result=result, output_path=output_path, experiment_ids=experiment_ids
+    html_uri = generate_html_report(
+        result=result, bucket_name=GCS_BUCKET, experiment_ids=experiment_ids
     )
-    logger.info("HTML report: %s", html_path)
+    logger.info("HTML report: %s", html_uri)
 
-    csv_files = export_csvs(result=result, output_path=output_path, timestamp=timestamp)
-    logger.info("Wrote %d CSV files to %s", len(csv_files), output_path)
+    csv_uris = export_csvs(result=result, bucket_name=GCS_BUCKET, timestamp=timestamp)
+    logger.info("Wrote %d CSV files to %s", len(csv_uris), GCS_BUCKET)
 
 
 
@@ -54,6 +55,6 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     print(f"  Interventions    : {len(result.raw_pass2)}")
     if not result.h4_crr.empty and result.h4_crr["mean_crr"].notna().any():
         print(f"  Mean CRR         : {result.h4_crr['mean_crr'].mean():.4f}")
-    print(f"\n  HTML report → {html_path}")
-    print(f"  CSVs        → {output_path}")
+    print(f"\n  HTML report → {html_uri}")
+    print(f"  CSVs        → gs://{GCS_BUCKET}/exports/yentlguard_exports_{timestamp}.zip")
     print("─" * 60 + "\n")

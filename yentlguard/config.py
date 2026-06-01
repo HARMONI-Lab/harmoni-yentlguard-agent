@@ -23,6 +23,7 @@ load_dotenv()
 GCP_PROJECT_ID = os.environ.get("YENTLGUARD_GCP_PROJECT", "yentlguard")
 GCP_LOCATION = os.environ.get("YENTLGUARD_GCP_LOCATION", "YOUR_GCP_LOCATION")  # e.g. "us-central1"
 BQ_DATASET_ID = os.environ.get("YENTLGUARD_BQ_DATASET", "YOUR_BQ_DATASET_ID")  # e.g. "yentlguard"
+GCS_BUCKET = os.environ.get("YENTLGUARD_GCS_BUCKET", "YOUR_GCS_BUCKET_NAME")
 BQ_LOCATION = "US"  # BigQuery dataset region — usually fine to leave as US
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,8 @@ def validate() -> None:
         missing.append("YENTLGUARD_GCP_LOCATION (or edit config.py GCP_LOCATION)")
     if BQ_DATASET_ID == "YOUR_BQ_DATASET_ID":
         missing.append("YENTLGUARD_BQ_DATASET (or edit config.py BQ_DATASET_ID)")
+    if GCS_BUCKET == "YOUR_GCS_BUCKET_NAME":
+        missing.append("YENTLGUARD_GCS_BUCKET (or edit config.py GCS_BUCKET)")
     if missing:
         raise RuntimeError(
             "YentlGuard GCP configuration incomplete. Set the following:\n"

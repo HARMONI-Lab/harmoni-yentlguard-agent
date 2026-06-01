@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import chainlit as cl
+from google.cloud import storage as gcs
 
 # Triple-backtick fence built without literal backticks (keeps this file easy to
 # embed in docs); functionally identical to a normal code fence.
@@ -50,42 +51,36 @@ except ImportError:
     _ADK_AVAILABLE = False
 
 
-# -- Report file watcher -------------------------------------------------------
-_RESULTS_DIRS = [
-    Path(os.environ.get("YENTLGUARD_RESULTS_DIR", "results")),
-    Path("yentlguard_analysis"),
-]
-for _d in _RESULTS_DIRS:
-    _d.mkdir(exist_ok=True)
+def get_signed_url(gcs_uri: str, expiration_seconds: int = 3600) -> str:
+    _, _, bucket_name, *parts = gcs_uri.split("/")
+    blob_name = "/".join(parts)
+    blob = gcs.Client().bucket(bucket_name).blob(blob_name)
+    return blob.generate_signed_url(expiration=expiration_seconds, version="v4")
 
-_PUBLIC_REPORTS = Path("public/reports")
-_PUBLIC_REPORTS.mkdir(parents=True, exist_ok=True)
-
-for _results_dir in _RESULTS_DIRS:
-    _link = _PUBLIC_REPORTS / _results_dir.name
-    if not _link.exists():
-        try:
-            _link.symlink_to(_results_dir.resolve())
-        except OSError:
-            pass  # Windows fallback: files copied on demand
-
-
-def _find_latest_report():
-    candidates = []
-    for d in _RESULTS_DIRS:
-        candidates.extend(d.glob("yentlguard_analysis_*.html"))
-    if not candidates:
-        return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
-
-
-async def _push_report_to_sidebar(report_path: Path) -> None:
-    """Push report HTML into the ElementSidebar.
+async def _push_report_to_sidebar_from_uri(report_uri: str) -> None:
+    """Push report HTML into the ElementSidebar using a signed URL.
 
     Always sets current_report in session so _ensure_sidebar can compare.
     """
-    parent_name = report_path.parent.name
-    rel = f"/public/reports/{parent_name}/{report_path.name}"
+    signed_url = get_signed_url(report_uri)
+    
+    report_el = cl.CustomElement(
+        name="ReportViewer",
+        props={
+            "html": "",
+            "src": signed_url,
+            "title": "Analysis Report",
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        },
+        display="side",
+    )
+    await cl.ElementSidebar.set_title("ANALYSIS REPORT")
+    await cl.ElementSidebar.set_elements([report_el], key="report-panel")
+    cl.user_session.set("current_report", report_uri)
+
+
+async def _push_report_to_sidebar_mock(report_path: Path) -> None:
+    """Mock mode static report loader."""
     try:
         html = report_path.read_text(encoding="utf-8")
     except OSError:
@@ -94,7 +89,7 @@ async def _push_report_to_sidebar(report_path: Path) -> None:
         name="ReportViewer",
         props={
             "html": html,
-            "src": rel,
+            "src": "",
             "title": report_path.stem.replace("yentlguard_analysis_", "Analysis "),
             "timestamp": datetime.fromtimestamp(
                 report_path.stat().st_mtime, tz=timezone.utc
@@ -106,27 +101,26 @@ async def _push_report_to_sidebar(report_path: Path) -> None:
     await cl.ElementSidebar.set_elements([report_el], key="report-panel")
     cl.user_session.set("current_report", str(report_path))
 
-
 # -- Welcome HTML --------------------------------------------------------------
 _WELCOME_HTML = """<!doctype html><html><head><meta charset='utf-8'>
 <title>Welcome to YentlGuard</title>
 <style>
   body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:28px;
-       color:#1c2128;background:#fff;}
+       color:#e6edf3;background:#0f1117;}
   h1{font-size:22px;margin:0 0 4px;} 
   h2{font-size:15px;margin:24px 0 8px;
-     color:#0f1117;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
+     color:#e6edf3;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
   p { line-height: 1.5; font-size: 14px; }
   ul { line-height: 1.5; font-size: 14px; }
 </style></head><body>
 <h1>YentlGuard</h1>
 <p><strong>Mechanistic interpretability for clinical-triage LLM bias</strong></p>
-<p>YentlGuard probes how clinical-triage language models shift confidence under demographic and sycophancy pressure — and surfaces it with measurable signals:</p>
+<p>YentlGuard probes how clinical-triage language models shift confidence under demographic and sycophancy pressure and surfaces it with measurable signals:</p>
 <ul>
-  <li><strong>ΔM</strong> — confidence-margin shift between paired vignettes</li>
-  <li><strong>CRR</strong> — confidence recovery rate after a corrective prompt</li>
-  <li><strong>TAR</strong> — thought-allocation ratio across reasoning traces</li>
-  <li><strong>Sycophancy gap</strong> — divergence under social pressure</li>
+  <li><strong>ΔM</strong> confidence-margin shift between paired vignettes</li>
+  <li><strong>CRR</strong> confidence recovery rate after a corrective prompt</li>
+  <li><strong>TAR</strong>  thought-allocation ratio across reasoning traces</li>
+  <li><strong>Sycophancy gap</strong>  divergence under social pressure</li>
 </ul>
 <h2>How to drive this console</h2>
 <p>1. Type a prompt in the chat window to the left.<br>
@@ -154,14 +148,20 @@ async def _push_welcome_to_sidebar() -> None:
 async def _ensure_sidebar() -> None:
     """Keep the analysis panel pinned across turns.
     """
-    latest = _find_latest_report()
+    current = cl.user_session.get("current_report")
 
     # Always re-push the element into the sidebar to ensure it persists 
     # across new turns, avoiding Chainlit's automatic garbage collection.
-    if latest is None:
+    if current is None or current == "welcome":
         await _push_welcome_to_sidebar()
+    elif current.startswith("gs://"):
+        await _push_report_to_sidebar_from_uri(current)
     else:
-        await _push_report_to_sidebar(latest)
+        # Mock mode fallback path
+        try:
+             await _push_report_to_sidebar_mock(Path(current))
+        except NameError:
+             await _push_welcome_to_sidebar()
 
 
 
@@ -376,12 +376,8 @@ async def on_start():
             session_id=session_id,
         )
 
-    # Always load the latest report or welcome screen immediately. No welcome screen ever.
-    latest = _find_latest_report()
-    if latest:
-        await _push_report_to_sidebar(latest)
-    else:
-        await _push_welcome_to_sidebar()
+    # Always load the latest report or welcome screen immediately.
+    await _ensure_sidebar()
 
     # IMPORTANT: do NOT send a cl.Message() here. Chainlit only renders the
     # @cl.set_starters prompts while the thread is EMPTY — sending any message
@@ -498,14 +494,17 @@ async def on_message(message: cl.Message):
             await _refresh_flow()
 
             if entry["tool"] == "analyze_run":
-                await asyncio.sleep(0.8)  # let the filesystem flush
-                new_report = _find_latest_report()
-                if new_report and str(new_report) != cl.user_session.get("current_report"):
-                    await _push_report_to_sidebar(new_report)
-                    await cl.Message(
-                        content=f"📊 Report loaded → right panel · `{new_report.name}`",
-                        author="YentlGuard",
-                    ).send()
+                try:
+                    data = json.loads(tool_result)
+                    new_report_uri = data.get("report_uri")
+                    if new_report_uri and new_report_uri != cl.user_session.get("current_report"):
+                        await _push_report_to_sidebar_from_uri(new_report_uri)
+                        await cl.Message(
+                            content=f"📊 Report loaded → right panel · `{new_report_uri.split('/')[-1]}`",
+                            author="YentlGuard",
+                        ).send()
+                except json.JSONDecodeError:
+                    pass
 
         # -- Text streaming ------------------------------------------------
         if text_parts:
@@ -552,19 +551,19 @@ _DEMO_REPORT_HTML = """<!doctype html><html><head><meta charset='utf-8'>
 <title>YentlGuard Analysis (demo)</title>
 <style>
   body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:28px;
-       color:#1c2128;background:#fff;}
+       color:#e6edf3;background:#0f1117;}
   h1{font-size:22px;margin:0 0 4px;} h2{font-size:15px;margin:24px 0 8px;
-     color:#0f1117;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
-  .sub{color:#6b7280;font-size:12px;margin-bottom:20px;}
+     color:#e6edf3;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
+  .sub{color:#8b949e;font-size:12px;margin-bottom:20px;}
   .cards{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0;}
-  .card{flex:1;min-width:120px;border:1px solid #e5e7eb;border-radius:8px;
-        padding:12px 14px;}
-  .card .k{font-size:11px;color:#6b7280;text-transform:uppercase;
+  .card{flex:1;min-width:120px;border:1px solid #30363d;border-radius:8px;
+        padding:12px 14px;background:#161b22;}
+  .card .k{font-size:11px;color:#8b949e;text-transform:uppercase;
            letter-spacing:.08em;} .card .v{font-size:22px;font-weight:700;}
-  .teal{color:#1D9E75;} .amber{color:#b8860b;} .coral{color:#D85A30;}
+  .teal{color:#1D9E75;} .amber{color:#E0A33E;} .coral{color:#D85A30;}
   table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px;}
-  th,td{border:1px solid #e5e7eb;padding:8px 10px;text-align:left;}
-  th{background:#f3f4f6;}
+  th,td{border:1px solid #30363d;padding:8px 10px;text-align:left;}
+  th{background:#161b22;}
 </style></head><body>
 <h1>YentlGuard — Analysis Report (DEMO)</h1>
 <div class='sub'>gemini-2.5-pro · medium budget · 70 vignettes · generated in mock mode</div>
@@ -586,8 +585,10 @@ report panel demonstrates end-to-end without GCP credentials.</p>
 
 
 def _write_demo_report() -> Path:
+    mock_dir = Path("yentlguard_analysis")
+    mock_dir.mkdir(exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out = _RESULTS_DIRS[0] / f"yentlguard_analysis_{ts}.html"
+    out = mock_dir / f"yentlguard_analysis_{ts}.html"
     out.write_text(_DEMO_REPORT_HTML, encoding="utf-8")
     return out
 
@@ -661,7 +662,7 @@ async def _handle_mock(query: str):
             await asyncio.sleep(0.3)
             # Only push if this is genuinely new.
             if str(report) != cl.user_session.get("current_report"):
-                await _push_report_to_sidebar(report)
+                await _push_report_to_sidebar_mock(report)
                 await cl.Message(
                     content=f"📊 Report loaded → right panel · `{report.name}`",
                     author="YentlGuard",

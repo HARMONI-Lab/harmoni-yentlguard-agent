@@ -23,6 +23,7 @@ import uuid
 from datetime import datetime, timezone
 
 from google.cloud import bigquery
+from google.cloud import storage as gcs
 
 from yentlguard.agent.runner import VignetteRun
 from yentlguard.config import EXPTS_TABLE, GCP_PROJECT_ID, RUNS_TABLE
@@ -231,6 +232,8 @@ class BQWriter:
     experiment_id:
         Phoenix experiment ID. Used as the primary identifier for the lapped
         run in BigQuery.
+    bucket_name:
+        GCS bucket name for writing dead-letter queue (DLQ) JSONL files.
     gate_threshold:
         The ΔM threshold used by YentlGuardRunner in this run.
     client:
@@ -240,16 +243,19 @@ class BQWriter:
     def __init__(
         self,
         experiment_id: str,
+        bucket_name: str,
         gate_threshold: float = 1.0,
         client: bigquery.Client | None = None,
     ):
         self.experiment_id = experiment_id
+        self.bucket_name = bucket_name
         self.gate_threshold = gate_threshold
         self._client = client or bigquery.Client(project=GCP_PROJECT_ID)
+        self._gcs_client = gcs.Client()
         self._buffer: list[dict] = []
         self._buffer_size = 100  # reduced from 500 for research use
         self.dlq_count = 0
-        self.dlq_path = pathlib.Path(f"yentlguard_dlq_{self.experiment_id}.jsonl")
+        self.dlq_uris: list[str] = []
 
     def write(
         self,
@@ -273,9 +279,9 @@ class BQWriter:
         """
         Force-write all buffered rows to BigQuery.
 
-        On insert failure, rows are written to a local JSONL dead-letter file.
+        On insert failure, rows are written to a GCS dead-letter file.
         Re-ingest with:
-            bq load --source_format=NEWLINE_DELIMITED_JSON <table> <dlq_file>
+            bq load --source_format=NEWLINE_DELIMITED_JSON <table> <dlq_uri>
         """
         if not self._buffer:
             return
@@ -288,16 +294,24 @@ class BQWriter:
                 errors,
             )
             self.dlq_count += len(self._buffer)
-            with self.dlq_path.open("a", encoding="utf-8") as f:
-                for row in self._buffer:
-                    f.write(json.dumps(row, default=str) + "\n")
+            
+            dlq_lines = [json.dumps(row, default=str) for row in self._buffer]
+            dlq_content = "\n".join(dlq_lines) + "\n"
+            
+            blob_name = f"dlq/yentlguard_dlq_{self.experiment_id}_{uuid.uuid4().hex[:8]}.jsonl"
+            blob = self._gcs_client.bucket(self.bucket_name).blob(blob_name)
+            blob.upload_from_string(dlq_content, content_type="application/jsonl")
+            
+            dlq_uri = f"gs://{self.bucket_name}/{blob_name}"
+            self.dlq_uris.append(dlq_uri)
+            
             logger.warning(
                 "Failed rows → DLQ: %s (%d rows). "
                 "Re-ingest: bq load --source_format=NEWLINE_DELIMITED_JSON %s %s",
-                self.dlq_path,
+                dlq_uri,
                 len(self._buffer),
                 RUNS_TABLE,
-                self.dlq_path,
+                dlq_uri,
             )
         else:
             logger.info(
@@ -337,8 +351,14 @@ class BQWriter:
         if errors:
             logger.error("Experiment registration failed: %s", errors)
             self.dlq_count += 1
-            with self.dlq_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps({"table": "experiments", "row": row}, default=str) + "\n")
+            
+            dlq_content = json.dumps({"table": "experiments", "row": row}, default=str) + "\n"
+            blob_name = f"dlq/yentlguard_dlq_expt_{self.experiment_id}_{uuid.uuid4().hex[:8]}.jsonl"
+            blob = self._gcs_client.bucket(self.bucket_name).blob(blob_name)
+            blob.upload_from_string(dlq_content, content_type="application/jsonl")
+            
+            dlq_uri = f"gs://{self.bucket_name}/{blob_name}"
+            self.dlq_uris.append(dlq_uri)
         else:
             logger.info(
                 "Experiment registered: experiment_id=%s label='%s'",
@@ -354,11 +374,12 @@ class BQWriter:
         if self.dlq_count > 0:
             import sys
 
+            dlq_list = "\n".join(f"    \033[93m{uri}\033[0m" for uri in self.dlq_uris)
             print(
                 f"\n\033[91m\033[1mWARNING: {self.dlq_count} row(s) failed to insert into BigQuery.\033[0m\n"
-                f"These rows were saved to a dead-letter queue: \033[93m{self.dlq_path.absolute()}\033[0m\n"
+                f"These rows were saved to dead-letter queues in GCS:\n{dlq_list}\n"
                 f"To re-ingest them later, run:\n"
-                f"    \033[96mbq load --source_format=NEWLINE_DELIMITED_JSON {RUNS_TABLE} {self.dlq_path}\033[0m\n",
+                f"    \033[96mbq load --source_format=NEWLINE_DELIMITED_JSON {RUNS_TABLE} <dlq_uri>\033[0m\n",
                 file=sys.stderr,
             )
 

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from google.cloud import storage as gcs
 
 from yentlguard.eval.analyze import AnalysisResult
 
@@ -428,11 +429,17 @@ footer a {{ color: var(--teal); text-decoration: none; }}
 """
 
 
+def _upload_to_gcs(content: bytes, blob_name: str, bucket_name: str, content_type: str) -> str:
+    client = gcs.Client()
+    blob = client.bucket(bucket_name).blob(blob_name)
+    blob.upload_from_string(content, content_type=content_type)
+    return f"gs://{bucket_name}/{blob_name}"
+
 def generate_html_report(
     result: AnalysisResult,
-    output_path: Path,
+    bucket_name: str,
     experiment_ids: list[str],
-) -> Path:
+) -> str:
     """
     Generate the YentlGuard Analysis Report.
 
@@ -440,21 +447,17 @@ def generate_html_report(
     ----------
     result:
         Computed AnalysisResult object containing all tables.
-    output_path:
-        Directory to write the report into.
+    bucket_name:
+        GCS bucket name to write the report into.
     experiment_ids:
         List of experiment IDs included in this analysis.
 
     Returns
     -------
-    Path to the generated HTML file.
+    GCS URI to the generated HTML file.
     """
-    output_path = Path(output_path)
-    output_path.mkdir(parents=True, exist_ok=True)
-
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    filename = f"yentlguard_analysis_{timestamp}.html"
-    out_file = output_path / filename
+    blob_name = f"reports/yentlguard_analysis_{timestamp}.html"
 
     # ── Overview summary cards ─────────────────────────────────────────────
     n_vignettes = int(result.overview["n_vignettes"].sum()) if not result.overview.empty else 0
@@ -650,5 +653,5 @@ def generate_html_report(
 </body>
 </html>"""
 
-    out_file.write_text(html, encoding="utf-8")
-    return out_file
+    html_bytes = html.encode("utf-8")
+    return _upload_to_gcs(html_bytes, blob_name, bucket_name, "text/html")
