@@ -33,7 +33,7 @@ h1, h2, h3 { font-family: var(--yg-display); letter-spacing: .01em; }
 pre, code { font-family: var(--yg-mono) !important; }
 pre {
   background: var(--yg-bg3) !important;
-  border: 1px solid var(--yg-border);
+  border:0 px solid var(--yg-border);
   border-radius: 8px;
 }
 
@@ -44,7 +44,7 @@ pre {
 /* Starter prompt buttons ------------------------------------ */
 button[class*="starter"], .starter {
   background: var(--yg-bg2) !important;
-  border: 1px solid var(--yg-border) !important;
+  border:0 px solid var(--yg-border) !important;
   color: var(--yg-text) !important;
   border-radius: 999px !important;
   transition: border-color .2s, transform .1s, box-shadow .2s;
@@ -64,7 +64,7 @@ button[type="submit"] {
 /* Composer input -------------------------------------------- */
 textarea, [class*="composer"] {
   background: var(--yg-bg2) !important;
-  border: 1px solid var(--yg-border) !important;
+  border:0 px solid var(--yg-border) !important;
   color: var(--yg-text) !important;
   font-family: var(--yg-mono) !important;
 }
@@ -72,21 +72,21 @@ textarea, [class*="composer"] {
 /* Element sidebar (analysis panel) -------------------------- */
 [class*="element-sidebar"], aside {
   background: linear-gradient(180deg, var(--yg-bg2), var(--yg-bg)) !important;
-  border-left: 1px solid var(--yg-border) !important;
+  border-left:0 px solid var(--yg-border) !important;
 }
 
-/* Make the right element sidebar (report panel) exactly 75% and always visible.
-   Force the chat panel to 25%. Hide resize handles and close buttons. */
+/* Make the right element sidebar (report panel) exactly 65% and always visible.
+   Force the chat panel to 35%. Hide resize handles and close buttons. */
 div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:nth-child(1) {
-  flex: 0 0 25% !important;
-  max-width: 25% !important;
-  min-width: 25% !important;
+  flex: 0 0 35% !important;
+  max-width: 35% !important;
+  min-width: 35% !important;
 }
 
 div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:nth-child(2) {
-  flex: 0 0 75% !important;
-  max-width: 75% !important;
-  min-width: 75% !important;
+  flex: 0 0 65% !important;
+  max-width: 65% !important;
+  min-width: 65% !important;
   display: flex !important;
   visibility: visible !important;
 }

@@ -154,7 +154,7 @@ body {{
 /* ── Header ────────────────────────────────────────────────────────────── */
 .report-header {{
   padding: 48px 64px 36px;
-  border-bottom: 1px solid var(--border);
+  border-bottom:0 px solid var(--border);
   position: relative;
   overflow: hidden;
 }}
@@ -206,7 +206,7 @@ nav {{
   position: sticky;
   top: 0;
   background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  border-bottom:0 px solid var(--border);
   padding: 0 64px;
   z-index: 100;
   display: flex;
@@ -233,7 +233,7 @@ main {{ padding: 48px 64px; max-width: 1400px; }}
 section {{
   margin-bottom: 64px;
   padding-bottom: 64px;
-  border-bottom: 1px solid var(--border);
+  border-bottom:0 px solid var(--border);
 }}
 section:last-child {{ border-bottom: none; }}
 
@@ -264,7 +264,7 @@ h2 {{
 }}
 .overview-card {{
   background: var(--bg2);
-  border: 1px solid var(--border);
+  border:0 px solid var(--border);
   border-radius: 8px;
   padding: 20px 24px;
 }}
@@ -305,7 +305,7 @@ h2 {{
 /* ── Tables ──────────────────────────────────────────────────────────── */
 .table-scroll {{
   overflow-x: auto;
-  border: 1px solid var(--border);
+  border:0 px solid var(--border);
   border-radius: 6px;
   margin-bottom: 12px;
 }}
@@ -316,7 +316,7 @@ table {{
 }}
 thead tr {{
   background: var(--bg3);
-  border-bottom: 1px solid var(--border);
+  border-bottom:0 px solid var(--border);
 }}
 th {{
   padding: 10px 14px;
@@ -361,7 +361,7 @@ td.bool-false {{ color: var(--coral); }}
 }}
 .metric-card {{
   background: var(--bg2);
-  border: 1px solid var(--border);
+  border:0 px solid var(--border);
   border-left: 3px solid var(--teal);
   border-radius: 6px;
   padding: 14px 20px;
@@ -400,7 +400,7 @@ td.bool-false {{ color: var(--coral); }}
 .run-id-badge {{
   font-size: 10px;
   background: var(--bg3);
-  border: 1px solid var(--border);
+  border:0 px solid var(--border);
   border-radius: 4px;
   padding: 2px 8px;
   color: var(--violet);
@@ -419,7 +419,7 @@ td.bool-false {{ color: var(--coral); }}
 /* ── Footer ──────────────────────────────────────────────────────────── */
 footer {{
   padding: 32px 64px;
-  border-top: 1px solid var(--border);
+  border-top:0 px solid var(--border);
   font-size: 11px;
   color: var(--text2);
   display: flex;

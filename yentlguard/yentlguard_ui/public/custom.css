@@ -2,8 +2,8 @@
  * YentlGuard — layout overrides for Chainlit
  *
  * Enforces a permanent 25 / 75 split:
- *   left  (chat)   → 25%
- *   right (report) → 75%
+ *   left  (chat)   → 35%
+ *   right (report) → 65%
  *
  * Drop this file at:  <project-root>/public/custom.css
  * Chainlit picks it up automatically at startup.
@@ -28,7 +28,7 @@ button[aria-label="Readme"],
   display: none !important;
 }
 
-/* ─── Root layout: make sidebar occupy 75% of the viewport ─────────────── */
+/* ─── Root layout: make sidebar occupy 65% of the viewport ─────────────── */
 
 /*
  * Chainlit renders roughly:
@@ -47,30 +47,30 @@ button[aria-label="Readme"],
   overflow: hidden !important;
 }
 
-/* Chat column — 25% */
+/* Chat column — 35% */
 #root main,
 [class*="threadContainer"],
 [class*="thread-container"],
 [class*="chatContainer"],
 [class*="chat-container"] {
-  flex: 0 0 25% !important;
+  flex: 0 0 35% !important;
   min-width: 0 !important;
-  max-width: 25% !important;
-  width: 25% !important;
+  max-width: 35% !important;
+  width: 35% !important;
   overflow-y: auto !important;
 }
 
-/* Sidebar column — 75% */
+/* Sidebar column — 65% */
 [class*="ElementSidebar"],
 [class*="element-sidebar"],
 [class*="sidebarContainer"],
 [class*="sidebar-container"],
 aside[class*="sidebar"],
 div[class*="sidebar"] {
-  flex: 0 0 75% !important;
+  flex: 0 0 65% !important;
   min-width: 0 !important;
-  max-width: 75% !important;
-  width: 75% !important;
+  max-width: 65% !important;
+  width: 65% !important;
   height: 100vh !important;
   overflow: hidden !important;
   display: flex !important;
