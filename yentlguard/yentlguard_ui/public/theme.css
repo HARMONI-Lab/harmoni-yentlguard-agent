@@ -75,13 +75,30 @@ textarea, [class*="composer"] {
   border-left: 1px solid var(--yg-border) !important;
 }
 
-/* Make the right element sidebar (report panel) ~75% of the screen.
-   Chainlit renders it as the last resizable panel in the main horizontal
-   panel group; class names are hashed, so target the stable data- attrs.
-   The divider stays drag-resizable if you want to fine-tune it live. */
-div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:last-child {
+/* Make the right element sidebar (report panel) exactly 75% and always visible.
+   Force the chat panel to 25%. Hide resize handles and close buttons. */
+div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:nth-child(1) {
+  flex: 0 0 25% !important;
+  max-width: 25% !important;
+  min-width: 25% !important;
+}
+
+div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:nth-child(2) {
   flex: 0 0 75% !important;
   max-width: 75% !important;
+  min-width: 75% !important;
+  display: flex !important;
+  visibility: visible !important;
+}
+
+[data-panel-resize-handle] {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+/* Hide sidebar close button */
+[class*="element-sidebar"] header button, aside header button {
+  display: none !important;
 }
 
 /* Scrollbar ------------------------------------------------- */
@@ -92,3 +109,33 @@ div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]
 /* Links ----------------------------------------------------- */
 a { color: var(--yg-teal); }
 a:hover { color: var(--yg-violet); }
+/* Remove user message background (purple blob) to make it plain text */
+[data-author="User"] > div > div,
+[data-author="user" i] > div > div,
+.cl-user-message,
+.cl-user-message > div,
+.cl-user-message > div > div,
+[class*="user-message"],
+[class*="message-box"],
+[class*="message-content"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--yg-text) !important;
+  border: none !important;
+}
+
+/* Ensure padding matches the AI plain text so they align nicely */
+[data-author="User"] > div > div {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Hide Chainlit header logo and any "Built with Chainlit" watermarks */
+header img,
+header [alt*="logo" i],
+header [class*="logo"],
+a[href*="chainlit.io"],
+[class*="watermark"] {
+  display: none !important;
+}

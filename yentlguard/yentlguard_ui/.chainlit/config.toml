@@ -16,7 +16,7 @@ cot = "hidden"
 custom_css = "/public/theme.css"
 custom_js = "/public/custom.js"
 # Wide enough for the report viewer
-element_sidebar_width = 58
+element_sidebar_width = 75
 
 [meta]
 generated_by = "2.0.0"

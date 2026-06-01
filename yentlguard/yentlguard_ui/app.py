@@ -100,34 +100,69 @@ async def _push_report_to_sidebar(report_path: Path) -> None:
                 report_path.stat().st_mtime, tz=timezone.utc
             ).strftime("%Y-%m-%d %H:%M UTC"),
         },
-        display="inline",
+        display="side",
     )
     await cl.ElementSidebar.set_title("ANALYSIS REPORT")
     await cl.ElementSidebar.set_elements([report_el], key="report-panel")
     cl.user_session.set("current_report", str(report_path))
 
 
+# -- Welcome HTML --------------------------------------------------------------
+_WELCOME_HTML = """<!doctype html><html><head><meta charset='utf-8'>
+<title>Welcome to YentlGuard</title>
+<style>
+  body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:28px;
+       color:#1c2128;background:#fff;}
+  h1{font-size:22px;margin:0 0 4px;} 
+  h2{font-size:15px;margin:24px 0 8px;
+     color:#0f1117;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
+  p { line-height: 1.5; font-size: 14px; }
+  ul { line-height: 1.5; font-size: 14px; }
+</style></head><body>
+<h1>YentlGuard</h1>
+<p><strong>Mechanistic interpretability for clinical-triage LLM bias</strong></p>
+<p>YentlGuard probes how clinical-triage language models shift confidence under demographic and sycophancy pressure — and surfaces it with measurable signals:</p>
+<ul>
+  <li><strong>ΔM</strong> — confidence-margin shift between paired vignettes</li>
+  <li><strong>CRR</strong> — confidence recovery rate after a corrective prompt</li>
+  <li><strong>TAR</strong> — thought-allocation ratio across reasoning traces</li>
+  <li><strong>Sycophancy gap</strong> — divergence under social pressure</li>
+</ul>
+<h2>How to drive this console</h2>
+<p>1. Type a prompt in the chat window to the left.<br>
+2. Watch the <strong>Agent Flow</strong> trace stream in real time.<br>
+3. When an analysis finishes, the report will replace this view automatically.</p>
+</body></html>"""
+
+async def _push_welcome_to_sidebar() -> None:
+    """Push the welcome description into the ElementSidebar."""
+    report_el = cl.CustomElement(
+        name="ReportViewer",
+        props={
+            "html": _WELCOME_HTML,
+            "src": "",
+            "title": "Welcome",
+            "timestamp": "",
+        },
+        display="side",
+    )
+    await cl.ElementSidebar.set_title("ABOUT YENTLGUARD")
+    await cl.ElementSidebar.set_elements([report_el], key="report-panel")
+    cl.user_session.set("current_report", "welcome")
+
+
 async def _ensure_sidebar() -> None:
     """Keep the analysis panel pinned across turns.
-
-    Only re-pushes if a NEW report has appeared since the last push.
-    If the same report is already displayed, this is a no-op — prevents
-    unnecessary sidebar flicker on every turn.
     """
-    current = cl.user_session.get("current_report")
     latest = _find_latest_report()
 
+    # Always re-push the element into the sidebar to ensure it persists 
+    # across new turns, avoiding Chainlit's automatic garbage collection.
     if latest is None:
-        # No reports exist yet — do nothing, no welcome screen.
-        return
+        await _push_welcome_to_sidebar()
+    else:
+        await _push_report_to_sidebar(latest)
 
-    latest_str = str(latest)
-    if latest_str == current:
-        # Same report already pinned — leave it alone.
-        return
-
-    # A new (or first) report is available — push it.
-    await _push_report_to_sidebar(latest)
 
 
 # -- Metric extraction ---------------------------------------------------------
@@ -299,30 +334,31 @@ def _is_final(event):
 
 
 # -- Starter prompts (onboarding) ----------------------------------------------
-@cl.set_starters
-async def starters():
-    return [
-        cl.Starter(
-            label="What experiments do I have?",
-            message="What experiments do I have?",
-        ),
-        cl.Starter(
-            label="What prompt fires if I run now?",
-            message="What prompt will be used if I run another experiment right now?",
-        ),
-        cl.Starter(
-            label="Analyze my latest run",
-            message="Run analyze_run on my most recent run and load the report.",
-        ),
-        cl.Starter(
-            label="Sycophancy verdict breakdown",
-            message="Give me the sycophancy verdict breakdown for my latest experiment.",
-        ),
-        cl.Starter(
-            label="Annotate spans with verdicts",
-            message="Annotate the spans from my latest run with sycophancy verdicts.",
-        ),
-    ]
+# @cl.set_starters
+# async def starters():
+#     return [
+#         cl.Starter(
+#             label="What experiments do I have?",
+#             message="What experiments do I have?",
+#         ),
+#         cl.Starter(
+#             label="What prompt fires if I run now?",
+#             message="What prompt will be used if I run another experiment right now?",
+#         ),
+#         cl.Starter(
+#             label="Analyze my latest run",
+#             message="Run analyze_run on my most recent run and load the report.",
+#         ),
+#         cl.Starter(
+#             label="Sycophancy verdict breakdown",
+#             message="Give me the sycophancy verdict breakdown for my latest experiment.",
+#         ),
+#         cl.Starter(
+#             label="Annotate spans with verdicts",
+#             message="Annotate the spans from my latest run with sycophancy verdicts.",
+#         ),
+#     ]
+
 
 
 # -- Chainlit lifecycle --------------------------------------------------------
@@ -340,11 +376,12 @@ async def on_start():
             session_id=session_id,
         )
 
-    # Always load the latest report immediately. No welcome screen ever.
+    # Always load the latest report or welcome screen immediately. No welcome screen ever.
     latest = _find_latest_report()
     if latest:
         await _push_report_to_sidebar(latest)
-    # If no report exists yet, sidebar stays empty — no welcome panel.
+    else:
+        await _push_welcome_to_sidebar()
 
     # IMPORTANT: do NOT send a cl.Message() here. Chainlit only renders the
     # @cl.set_starters prompts while the thread is EMPTY — sending any message
