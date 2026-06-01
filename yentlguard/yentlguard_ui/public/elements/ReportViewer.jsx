@@ -32,10 +32,46 @@ export default function ReportViewer() {
   // box scales with it — transform-scale leaves the hit area unscaled, which
   // makes clicks/scroll land on the wrong spot and the report feel "broken".
   const iframeStyle = { border: "none", width: "100%", height: "100%", zoom: zoom };
-  // Open external links in a new tab, but keep in-page (#anchor) links working
-  // in place — prevents the report from reloading the app into this iframe.
-  const linkFix = "<script>document.addEventListener('click',function(e){var a=e.target.closest?e.target.closest('a'):null;if(!a)return;var href=a.getAttribute('href')||'';if(!href||href.charAt(0)==='#')return;e.preventDefault();window.open(a.href,'_blank','noopener');},true);</script>";
-  const reportHtml = (html || "").replace("<head>", "<head>" + linkFix);
+  // Intercept link clicks inside the report iframe from the parent (works even
+  // when the report HTML has no <head> to inject into). External/root links
+  // open in a new tab; in-page #anchor links keep scrolling in place. This is
+  // what stops the report reloading the whole app into the iframe.
+  const guardLinks = (e) => {
+    try {
+      const doc = e.target && e.target.contentDocument;
+      if (!doc || doc.__ygLinkGuard) return;
+      doc.__ygLinkGuard = true;
+
+      // Override window.open INSIDE the iframe so any JS call (chart tooltips,
+      // buttons, scripts) that would open the host app is blocked at the source.
+      // External URLs are re-routed through the parent window so they still open.
+      const iframeWin = doc.defaultView;
+      const parentOpen = window.open.bind(window);
+      iframeWin.open = (url, _name, _feat) => {
+        try {
+          const u = new URL(url || "", window.location.href);
+          if (u.origin === window.location.origin) return null; // block host-app
+          return parentOpen(u.href, "_blank", "noopener,noreferrer");
+        } catch (_) { return null; }
+      };
+
+      // Also block <a> clicks that resolve to the host app
+      doc.addEventListener("click", (ev) => {
+        const a = ev.target && ev.target.closest ? ev.target.closest("a") : null;
+        if (!a) return;
+        const href = a.getAttribute("href") || "";
+        if (!href || href.charAt(0) === "#") return; // let anchors scroll
+        ev.preventDefault();
+        try {
+          const url = new URL(a.href);
+          if (url.origin !== window.location.origin) {
+            window.open(url.href, "_blank", "noopener,noreferrer");
+          }
+          // same-origin links silently blocked
+        } catch (_) {}
+      }, true);
+    } catch (_) {}
+  };
 
   return (
     <div style={root}>
@@ -54,12 +90,12 @@ export default function ReportViewer() {
         </div>
       </div>
       <div style={frame}>
-        {/* External links open in a new tab; in-page #anchors still scroll in
-            place. This stops report links from reloading the app into the
-            iframe ("window in window"). */}
+        {/* onLoad guard (above) redirects external links to a new tab while
+            letting in-page #anchors scroll, so the report never reloads the
+            app into this iframe. */}
         {html
-          ? <iframe srcDoc={reportHtml} title="report" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" style={iframeStyle} />
-          : <iframe src={p.src} title="report" sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" style={iframeStyle} />}
+          ? <iframe srcDoc={html} title="report" onLoad={guardLinks} sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" style={iframeStyle} />
+          : <iframe src={p.src} title="report" onLoad={guardLinks} sandbox="allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms" style={iframeStyle} />}
       </div>
     </div>
   );

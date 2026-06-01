@@ -41,21 +41,7 @@ def cmd_analyze(args: argparse.Namespace) -> None:
     csv_files = export_csvs(result=result, output_path=output_path, timestamp=timestamp)
     logger.info("Wrote %d CSV files to %s", len(csv_files), output_path)
 
-    if args.register_eval:
-        from yentlguard.eval.agent_builder import AgentBuilderEvalLayer
 
-        try:
-            layer = AgentBuilderEvalLayer()
-            models = result.overview["model_version"].unique().tolist()
-            task = layer.register_eval_task(
-                experiment_ids=experiment_ids,
-                label=args.label or f"yentlguard-analyze-{timestamp}",
-                model_versions=models,
-                notes=args.notes,
-            )
-            logger.info("Agent Builder eval task registered: %s", task.task_id)
-        except Exception as e:
-            logger.warning("Agent Builder registration failed (non-fatal): %s", e)
 
     print("\n" + "─" * 60)
     print("  YentlGuard Analysis Complete")
