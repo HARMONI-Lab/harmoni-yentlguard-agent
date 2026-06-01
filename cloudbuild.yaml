@@ -1,22 +1,22 @@
 steps:
-  # Step 1: Build the Docker image with both the commit SHA and latest tags
+  # Step 1: Build the Docker image with the correct folder nesting
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build', 
-      '-t', 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui:$COMMIT_SHA',
-      '-t', 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui:latest',
+      '-t', 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/harmoni-yentlguard-agent/yentlguard-ui:$COMMIT_SHA',
+      '-t', 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/harmoni-yentlguard-agent/yentlguard-ui:latest',
       '.'
     ]
 
-  # Step 2: Push all tags for this image to Artifact Registry
+  # Step 2: Push the image tags to the correct path
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'push', 
-      'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui',
+      'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/harmoni-yentlguard-agent/yentlguard-ui',
       '--all-tags'
     ]
 
-  # Step 3: Deploy specifically the unique commit SHA image to Cloud Run
+  # Step 3: Deploy the freshly built git commit tag
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -24,7 +24,7 @@ steps:
     - 'deploy'
     - 'yentlguard-ui'
     - '--image'
-    - 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui:$COMMIT_SHA'
+    - 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/harmoni-yentlguard-agent/yentlguard-ui:$COMMIT_SHA'
     - '--region'
     - 'us-central1'
     - '--min-instances'
@@ -38,5 +38,5 @@ steps:
     - 'PHOENIX_API_KEY=PHOENIX_API_KEY:latest'
 
 images:
-- 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui:$COMMIT_SHA'
-- 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/yentlguard-ui:latest'
+- 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/harmoni-yentlguard-agent/yentlguard-ui:$COMMIT_SHA'
+- 'us-central1-docker.pkg.dev/yentlguard/cloud-run-source-deploy/harmoni-yentlguard-agent/yentlguard-ui:latest'
