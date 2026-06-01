@@ -95,9 +95,8 @@ ui = [
 yentlguard = "yentlguard.cli:main"
 
 [project.urls]
-Homepage = "https://harmonilab.org"
-Repository = "https://github.com/harmonilab/yentlguard"
-"Bug Tracker" = "https://github.com/harmonilab/yentlguard/issues"
+Repository = "https://github.com/HARMONI-Lab/harmoni-yentlguard-agent"
+"Bug Tracker" = "https://github.com/HARMONI-Lab/harmoni-yentlguard-agent/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["yentlguard"]

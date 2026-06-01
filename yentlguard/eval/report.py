@@ -646,7 +646,7 @@ def generate_html_report(
 <main>{body_content}</main>
 
 <footer>
-  <span>YentlGuard · <a href="https://harmonilab.org">HARMONI Lab</a> · harmonilab.org</span>
+  <span>YentlGuard</span>
   <span>Generated {generated_at}</span>
 </footer>
 

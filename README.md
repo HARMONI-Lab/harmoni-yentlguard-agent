@@ -102,8 +102,8 @@ If you are developing YentlGuard, you can use the provided tools:
 
 ## License
 
-This project is licensed under the [Apache 2.0 License](LICENSE).
+This project is licensed under the MIT License.
 
 ## Authors
 
-- Inna Rytsareva (<inna@harmonilab.org>) - [HarmoniLab](https://harmonilab.org)
+- Inna Rytsareva (<inna@harmonilab.org>)

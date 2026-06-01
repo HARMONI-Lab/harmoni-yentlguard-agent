@@ -5,7 +5,6 @@ Instruments Gemini 2.5 Pro vs 3.1 Pro triage runs with token-level logprob
 extraction, Thought Allocation Ratio tracking, and a two-pass corrective
 re-prompting loop triggered by demographic-linked confidence drops.
 
-Published by HARMONI Lab (harmonilab.org)
 """
 
 from yentlguard.agent.runner import YentlGuardRunner
