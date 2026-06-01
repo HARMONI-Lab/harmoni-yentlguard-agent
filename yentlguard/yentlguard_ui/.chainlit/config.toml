@@ -1,0 +1,22 @@
+[project]
+enable_telemetry = false
+
+[features]
+spontaneous_file_upload.enabled = false
+audio.enabled = false
+# Keep the analysis sidebar open by default
+element_sidebar.default_open = true
+
+[UI]
+name = "YentlGuard"
+description = "Mechanistic interpretability for clinical triage LLM bias"
+default_collapse_content = false
+# Show the full chain-of-thought / tool steps — ideal for a live demo
+cot = "hidden"
+custom_css = "/public/theme.css"
+custom_js = "/public/custom.js"
+# Wide enough for the report viewer
+element_sidebar_width = 58
+
+[meta]
+generated_by = "2.0.0"
