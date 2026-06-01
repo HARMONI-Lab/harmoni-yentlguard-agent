@@ -1,0 +1,141 @@
+/* ============================================================
+   YentlGuard · Chainlit theme  ·  HARMONI Lab
+   Dark "scientific instrument" look. Pairs with theme.json.
+   ============================================================ */
+
+:root {
+  --yg-bg: #0f1117;
+  --yg-bg2: #161b22;
+  --yg-bg3: #1c2128;
+  --yg-border: #30363d;
+  --yg-text: #e6edf3;
+  --yg-text2: #8b949e;
+  --yg-teal: #1D9E75;
+  --yg-coral: #D85A30;
+  --yg-violet: #7F77DD;
+  --yg-amber: #E0A33E;
+  --yg-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --yg-display: 'Syne', var(--yg-mono);
+}
+
+/* Base canvas ------------------------------------------------ */
+body, #root {
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(127,119,221,.08), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(29,158,117,.07), transparent 55%),
+    var(--yg-bg);
+  color: var(--yg-text);
+}
+
+h1, h2, h3 { font-family: var(--yg-display); letter-spacing: .01em; }
+
+/* Code + tool-step monospace -------------------------------- */
+pre, code { font-family: var(--yg-mono) !important; }
+pre {
+  background: var(--yg-bg3) !important;
+  border: 1px solid var(--yg-border);
+  border-radius: 8px;
+}
+
+/* Step (chain-of-thought) tree ------------------------------ */
+[class*="step"] { border-left: 2px solid var(--yg-border); }
+[class*="step"]:hover { border-left-color: var(--yg-teal); }
+
+/* Starter prompt buttons ------------------------------------ */
+button[class*="starter"], .starter {
+  background: var(--yg-bg2) !important;
+  border: 1px solid var(--yg-border) !important;
+  color: var(--yg-text) !important;
+  border-radius: 999px !important;
+  transition: border-color .2s, transform .1s, box-shadow .2s;
+}
+button[class*="starter"]:hover, .starter:hover {
+  border-color: var(--yg-teal) !important;
+  box-shadow: 0 0 0 1px rgba(29,158,117,.35), 0 6px 18px rgba(0,0,0,.4);
+  transform: translateY(-1px);
+}
+
+/* Primary action / send ------------------------------------- */
+button[type="submit"] {
+  background: var(--yg-teal) !important;
+  color: #04130d !important;
+}
+
+/* Composer input -------------------------------------------- */
+textarea, [class*="composer"] {
+  background: var(--yg-bg2) !important;
+  border: 1px solid var(--yg-border) !important;
+  color: var(--yg-text) !important;
+  font-family: var(--yg-mono) !important;
+}
+
+/* Element sidebar (analysis panel) -------------------------- */
+[class*="element-sidebar"], aside {
+  background: linear-gradient(180deg, var(--yg-bg2), var(--yg-bg)) !important;
+  border-left: 1px solid var(--yg-border) !important;
+}
+
+/* Make the right element sidebar (report panel) exactly 75% and always visible.
+   Force the chat panel to 25%. Hide resize handles and close buttons. */
+div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:nth-child(1) {
+  flex: 0 0 25% !important;
+  max-width: 25% !important;
+  min-width: 25% !important;
+}
+
+div[data-panel-group][data-panel-group-direction="horizontal"] > div[data-panel]:nth-child(2) {
+  flex: 0 0 75% !important;
+  max-width: 75% !important;
+  min-width: 75% !important;
+  display: flex !important;
+  visibility: visible !important;
+}
+
+[data-panel-resize-handle] {
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
+/* Hide sidebar close button */
+[class*="element-sidebar"] header button, aside header button {
+  display: none !important;
+}
+
+/* Scrollbar ------------------------------------------------- */
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: var(--yg-border); border-radius: 6px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--yg-teal); }
+
+/* Links ----------------------------------------------------- */
+a { color: var(--yg-teal); }
+a:hover { color: var(--yg-violet); }
+/* Remove user message background (purple blob) to make it plain text */
+[data-author="User"] > div > div,
+[data-author="user" i] > div > div,
+.cl-user-message,
+.cl-user-message > div,
+.cl-user-message > div > div,
+[class*="user-message"],
+[class*="message-box"],
+[class*="message-content"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--yg-text) !important;
+  border: none !important;
+}
+
+/* Ensure padding matches the AI plain text so they align nicely */
+[data-author="User"] > div > div {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* Hide Chainlit header logo and any "Built with Chainlit" watermarks */
+header img,
+header [alt*="logo" i],
+header [class*="logo"],
+a[href*="chainlit.io"],
+[class*="watermark"] {
+  display: none !important;
+}

@@ -1,0 +1,119 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yentlguard"
+version = "0.1.0"
+description = "Mechanistic interpretability layer for clinical triage LLM bias — built on YentlBench"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Inna Rytsareva", email = "inna@harmonilab.org" }
+]
+keywords = [
+    "mechanistic-interpretability",
+    "clinical-ai",
+    "bias-detection",
+    "gemini",
+    "arize-phoenix",
+    "women-health",
+    "triage"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
+
+dependencies = [
+    # Core benchmark dependency
+    "yentlbench>=0.2.2",
+
+    # Gemini / Vertex AI
+    "google-genai>=1.0.0",
+    "google-cloud-aiplatform>=1.112.0",
+
+    # ADK — agent framework
+    "google-adk>=1.32.0",
+
+    # Phoenix — telemetry, prompt management, datasets, experiments
+    # arize-phoenix>=7.0 ships phoenix.otel.register (replaces manual
+    # OTLPSpanExporter setup) and phoenix.client.Client (REST API for
+    # prompts, datasets, experiments, span annotation).
+    "arize-phoenix>=7.0",
+    "arize-phoenix-otel>=0.6.0",      # phoenix.otel.register
+    "openinference-instrumentation-google-adk>=0.1.11",
+    "openinference-instrumentation-google-genai>=0.1.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0",
+
+    # Metrics & data
+    "numpy>=1.26.0",
+    "pandas>=2.2.0",
+    "scipy>=1.13.0",
+
+    # BigQuery
+    "google-cloud-bigquery>=3.20.0",
+    "google-cloud-bigquery-storage>=2.25.0",
+    "pyarrow>=16.0.0",
+    "db-dtypes>=1.1.0",
+
+    # MCP Python SDK (used by BaselineLookup internals)
+    "mcp>=1.0.0",
+
+    # Env var loading
+    "python-dotenv>=1.0.1",
+    "nest-asyncio>=1.6.0",
+    
+    # Core types
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "requests>=2.0.0",
+]
+notebook = [
+    "jupyter>=1.0.0",
+    "matplotlib>=3.9.0",
+    "seaborn>=0.13.0",
+    "plotly>=5.22.0",
+]
+ui = [
+    "chainlit>=2.0.0,<3.0.0",
+]
+
+[project.scripts]
+yentlguard = "yentlguard.cli:main"
+
+[project.urls]
+Homepage = "https://harmonilab.org"
+Repository = "https://github.com/harmonilab/yentlguard"
+"Bug Tracker" = "https://github.com/harmonilab/yentlguard/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["yentlguard"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
