@@ -262,87 +262,6 @@ def annotate_spans_with_verdicts(
     )
 
 
-#     # Step 2: Locate Phoenix spans for this run
-#     # Uses Python client rather than Phoenix MCP get-spans because MCP does
-#     # not support custom attribute filtering. The agent can call get-spans
-#     # or get-span-annotations on specific span_ids from sample_span_ids below.
-#     base_url = os.environ.get("PHOENIX_BASE_URL", os.environ.get("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"))
-#     api_key = os.environ.get("PHOENIX_API_KEY", "")
-#
-#     client = _get_phoenix_client()
-#     if client is None:
-#         return json.dumps({
-#             "status": "error",
-#             "message": "Phoenix client unavailable — check PHOENIX_BASE_URL and PHOENIX_API_KEY.",
-#         })
-#
-#     span_map = _find_pass2_spans_for_run(client, experiment_id)
-#
-#     if not span_map:
-#         # span_map may be empty if experiment_id attribute was not set on spans, or
-#         # if this is a run that pre-dates experiment_id span enrichment.
-#         logger.warning(
-#             "No pass_number=2 spans found with experiment_id=%s in Phoenix. "
-#             "Spans may pre-date experiment_id attribute tagging — annotation skipped.",
-#             experiment_id,
-#         )
-#         return json.dumps({
-#             "status": "no_spans",
-#             "message": (
-#                 f"No pass_number=2 spans found in Phoenix for experiment_id={experiment_id}. "
-#                 "Verify that yentlguard.experiment_id is set on spans via enrich_generation_span()."
-#             ),
-#             "n_bq_rows": len(df),
-#         })
-#
-#     # Step 3: Annotate matched spans
-#     n_annotated = 0
-#     n_skipped = 0
-#     errors: list[str] = []
-#     sample_span_ids: list[str] = []
-#
-#     for _, bq_row in df.iterrows():
-#         vignette_id = str(bq_row["vignette_id"])
-#         variant = str(bq_row["demographic_variant"])
-#         verdict = str(bq_row["sycophancy_verdict"])
-#         crr = float(bq_row["crr"])
-#         gap = float(bq_row["crr_vs_distractor_gap"])
-#
-#         span_id = span_map.get((vignette_id, variant))
-#         if not span_id:
-#             n_skipped += 1
-#             continue
-#
-#         success = annotate_span_with_verdict(
-#             span_id=span_id,
-#             vignette_id=vignette_id,
-#             sycophancy_verdict=verdict,
-#             crr=crr,
-#             crr_vs_distractor_gap=gap,
-#             base_url=base_url,
-#             api_key=api_key,
-#         )
-#         if success:
-#             n_annotated += 1
-#             if len(sample_span_ids) < 5:
-#                 sample_span_ids.append(span_id)
-#         else:
-#             n_skipped += 1
-#
-#     return json.dumps({
-#         "status": "complete",
-#         "experiment_id": experiment_id,
-#         "n_annotated": n_annotated,
-#         "n_skipped": n_skipped,
-#         "sample_span_ids": sample_span_ids,
-#         "mcp_verification_hint": (
-#             "Call get-span-annotations with a span_id from sample_span_ids "
-#             "to verify that yentlguard.sycophancy_verdict was written correctly."
-#         ),
-#         "errors": errors[:10],
-#     })
-
-
 def push_prompt_version(
     prompt_name: str,
     template: str,
@@ -402,7 +321,6 @@ def push_prompt_version(
     )
 
 
-# AFTER
 def create_anomaly_dataset(
     experiment_id: str,
     reason: str,

@@ -623,3 +623,136 @@ class PhoenixDatasetManager:
         except Exception as e:
             logger.warning("Failed to push anomaly subset '%s': %s", dataset_name, e)
             return None
+
+
+class PhoenixExperimentRegistry:
+    """
+    Registers YentlGuard runs as Phoenix experiments.
+
+    Parameters
+    ----------
+    base_url / api_key: same as PhoenixPromptManager.
+    """
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ):
+        self._base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+        self._api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
+        self._client = None
+        self._available = False
+        self._init_client()
+
+    def _init_client(self) -> None:
+        try:
+            from phoenix.client import Client
+
+            self._client = Client(
+                base_url=self._base_url,
+                api_key=self._api_key,
+            )
+            self._available = True
+        except Exception as e:
+            logger.warning(
+                "PhoenixExperimentRegistry: Phoenix unavailable (%s). "
+                "Experiment registration will be skipped.",
+                e,
+            )
+
+    def register(
+        self,
+        label: str,
+        dataset_id: str | None,
+        model_version: str,
+        thinking_budget: str | None,
+        variants: list[str],
+        vignette_count: int,
+        notes: str | None = None,
+    ) -> str:
+        """
+        Register a YentlGuard experiment batch in Phoenix.
+
+        Returns Phoenix experiment ID. Raises on failure — Phoenix is a
+        hard dependency for experiment_id generation.
+        """
+        if not self._available or self._client is None:
+            raise RuntimeError("Phoenix unavailable — experiment registration failed.")
+
+        metadata = {
+            "model_version": model_version,
+            "thinking_budget": thinking_budget or "disabled",
+            "variants": ",".join(variants),
+            "vignette_count": vignette_count,
+        }
+        if notes:
+            metadata["notes"] = notes
+
+        if not dataset_id:
+            raise ValueError(
+                f"Skipping Phoenix experiment registration for '{label}' because "
+                "no dataset_id was provided (corpus not uploaded)."
+            )
+
+        try:
+            kwargs: dict = {
+                "experiment_name": label,
+                "experiment_metadata": metadata,
+                "dataset_id": dataset_id,
+            }
+            experiment = self._client.experiments.create(**kwargs)
+            if isinstance(experiment, dict) and "id" in experiment:
+                experiment_id = str(experiment["id"])
+            else:
+                experiment_id = str(getattr(experiment, "id", None) or experiment)
+            logger.info(
+                "Registered Phoenix experiment '%s' (id=%s)",
+                label,
+                experiment_id,
+            )
+            return experiment_id
+        except Exception as e:
+            logger.error("Failed to register Phoenix experiment '%s': %s", label, e)
+            raise
+
+
+def annotate_span_with_verdict(
+    span_id: str,
+    vignette_id: str,
+    sycophancy_verdict: str,
+    crr: float,
+    crr_vs_distractor_gap: float,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> bool:
+    _base_url = base_url or os.environ.get("PHOENIX_BASE_URL", "http://localhost:6006")
+    _api_key = api_key or os.environ.get("PHOENIX_API_KEY", "")
+    try:
+        from phoenix.client import Client
+
+        client = Client(base_url=_base_url, api_key=_api_key)
+        client.spans.add_span_annotation(
+            span_id=span_id,
+            annotation_name="yentlguard.sycophancy_verdict",
+            annotator_kind="CODE",
+            label=sycophancy_verdict,
+            score=crr,
+            metadata={
+                "crr": crr,
+                "crr_vs_distractor_gap": crr_vs_distractor_gap,
+                "vignette_id": vignette_id,
+            },
+        )
+        logger.info(
+            "Annotated span %s (vignette=%s) with verdict=%s crr=%.4f gap=%.4f",
+            span_id, vignette_id, sycophancy_verdict, crr, crr_vs_distractor_gap,
+        )
+        return True
+    except Exception as e:
+        logger.warning(
+            "Span annotation failed for %s: %s",
+            span_id, e,
+            exc_info=True,
+        )
+        return False
