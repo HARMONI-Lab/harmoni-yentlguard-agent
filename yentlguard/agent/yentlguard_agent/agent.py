@@ -3,7 +3,7 @@ YentlGuard root ADK agent.
 
 Multi-agent architecture:
     Root Supervisor  — Plans and delegates to sub-agents via ADK transfer
-    Data Analyst     — BigQuery metrics, PSS, sycophancy verdicts
+    Data Analyst     — BigQuery metrics, delta_m_degradation, sycophancy verdicts
     Observability    — Phoenix MCP, trace/span exploration, prompt versions
     Runner           — Baseline runs, experiments, and reporting
 """
@@ -47,7 +47,7 @@ from yentlguard.agent.yentlguard_agent.prompt import (
 )
 from yentlguard.agent.yentlguard_agent.tools.bq_tools import (
     get_gate_fire_rate,
-    get_pss_summary,
+    get_delta_m_degradation_summary,
     get_sycophancy_verdict,
     list_experiments,
     query_bigquery,
@@ -84,7 +84,7 @@ class VertexGemini(Gemini):
 data_analyst_tools = [
     FunctionTool(func=query_bigquery),
     FunctionTool(func=list_experiments),
-    FunctionTool(func=get_pss_summary),
+    FunctionTool(func=get_delta_m_degradation_summary),
     FunctionTool(func=get_sycophancy_verdict),
     FunctionTool(func=get_gate_fire_rate),
 ]
@@ -92,7 +92,7 @@ data_analyst_tools = [
 data_analyst_agent = Agent(
     model=VertexGemini(model=_model),
     name="data_analyst_agent",
-    description="Handles BigQuery metric aggregation, statistical thresholds, PSS, CRR, and computes sycophancy verdicts.",
+    description="Handles BigQuery metric aggregation, statistical thresholds, delta_m_degradation, CRR, and computes sycophancy verdicts.",
     instruction=DATA_ANALYST_INSTRUCTION,
     tools=data_analyst_tools,
 )

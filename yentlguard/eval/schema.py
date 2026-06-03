@@ -443,7 +443,7 @@ def create_dataset_and_tables(client: bigquery.Client | None = None) -> None:
     dataset.description = (
         "YentlGuard mechanistic interpretability eval results. "
         "Tracks ΔM, TAR, CRR across Gemini model generations on "
-        "YentlBench triage vignettes. Published by HARMONI Lab."
+        "YentlBench triage vignettes."
     )
     client.create_dataset(dataset, exists_ok=True)
     print(f"Dataset ready: {FULL_DATASET}")

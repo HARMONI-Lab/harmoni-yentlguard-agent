@@ -440,6 +440,7 @@ class YentlGuardRunner:
                         self.baseline_lookup.get_baseline_delta_m,
                         vignette_id=vignette_id,
                         variant="nb_ambiguous",
+                        model_version=self.model_version,
                     )
                     run.baseline_delta_m = baseline
                     baseline_success = True

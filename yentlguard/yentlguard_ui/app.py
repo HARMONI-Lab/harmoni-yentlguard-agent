@@ -1,34 +1,34 @@
-"""
-YentlGuard · Chainlit Interface  —  v2 "demo edition"
-Mechanistic interpretability for clinical-triage LLM bias
+"""YentlGuard · Chainlit Interface  —  v2 "demo edition"
 
+Mechanistic interpretability for clinical-triage LLM bias
 Targets Chainlit >= 2.0  (uses ElementSidebar, CustomElement, set_starters).
 
-What changed vs v1
-------------------
-• Live "Agent Flow" trace ... every supervisor -> sub-agent -> tool hop is shown
-                              as it streams (inline AgentFlow custom element).
-• Orchestration step tree .. ORCHESTRATION -> <agent> -> <tool> nested steps,
-                              each tool call timed + status-marked.
-• Starter prompt buttons ... one-click demo prompts via @cl.set_starters.
-• Metric gauges ............ delta-M / CRR / TAR / gap / PSS as threshold-
-                              coloured radial gauges (MetricPulse).
-• Report toolbar ........... zoom / fullscreen / open / download (ReportViewer).
-• Mock mode upgraded ....... writes a self-contained demo report and exercises
-                              the full multi-agent flow with no GCP creds.
+Report loading model
+--------------------
+A single session variable `current_report` is the source of truth for what is
+shown in the sidebar. Its value is one of:
+  • "welcome"                  -> the welcome screen
+  • a gs:// or https:// URI    -> a report served through the proxy route
+  • a local file path string   -> a report read from disk (mock mode)
 
-Run:
-    PYTHONPATH=.. chainlit run app.py
+Everything goes through `show_report(target)`, which is idempotent: if `target`
+is already what's shown it does nothing (this is the anti-flicker guard), and it
+is the ONLY place that writes `current_report`. The `_render_*` helpers only
+draw; they never touch session state, so the two can't drift apart.
+
+Run:    PYTHONPATH=.. chainlit run app.py
 """
 
 import asyncio
 import json
+import logging
 import os
 import re
 import secrets
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import chainlit as cl
 from google.cloud import storage as gcs
@@ -37,6 +37,9 @@ from google.cloud import storage as gcs
 # embed in docs); functionally identical to a normal code fence.
 _FENCE = chr(96) * 3
 
+# Module logger. All UI-side debug is prefixed with [ui] so it's easy to grep in
+# the terminal feed and pinpoint where report loading stops.
+logger = logging.getLogger("yentlguard.ui")
 
 # -- ADK runner setup ----------------------------------------------------------
 try:
@@ -50,42 +53,107 @@ except ImportError:
     _runner = None
     _ADK_AVAILABLE = False
 
+from chainlit.server import app as cl_app
+from fastapi import Response
 
-def get_signed_url(gcs_uri: str, expiration_seconds: int = 3600) -> str:
-    _, _, bucket_name, *parts = gcs_uri.split("/")
+
+@cl_app.get("/report-proxy/{bucket_name}/{blob_name:path}")
+async def proxy_report(bucket_name: str, blob_name: str):
+    """Proxy HTML reports from GCS to bypass Chainlit websocket size limits and CORS/Iframe restrictions."""
+    logger.info("[ui] proxy_report: GET bucket=%s blob=%s", bucket_name, blob_name)
+    try:
+        client = gcs.Client()
+        blob = client.bucket(bucket_name).blob(blob_name)
+        content = blob.download_as_string()
+        logger.info("[ui] proxy_report: served %d bytes for %s", len(content), blob_name)
+        return Response(content=content, media_type="text/html")
+    except Exception as e:
+        logger.exception("[ui] proxy_report: FAILED for %s: %s", blob_name, e)
+        return Response(content=f"Error loading report: {e}", status_code=500)
+
+
+# -- Welcome HTML --------------------------------------------------------------
+_WELCOME_HTML = """<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'>
+<title>Welcome to YentlGuard</title>
+<style>
+  body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:28px;
+       color:#e6edf3;background:#0f1117;}
+  h1{font-size:22px;margin:0 0 4px;}
+  h2{font-size:15px;margin:24px 0 8px;
+     color:#e6edf3;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
+  p { line-height: 1.5; font-size: 14px; }
+  ul { line-height: 1.5; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>YentlGuard</h1>
+<p><strong>Mechanistic interpretability for clinical-triage LLM bias</strong></p>
+<p>YentlGuard probes how clinical-triage language models shift confidence under demographic and sycophancy pressure and surfaces it with measurable signals:</p>
+<ul>
+  <li><strong>\u0394M</strong> confidence-margin shift between paired vignettes</li>
+  <li><strong>CRR</strong> confidence recovery rate after a corrective prompt</li>
+  <li><strong>TAR</strong>  thought-allocation ratio across reasoning traces</li>
+  <li><strong>Sycophancy gap</strong>  divergence under social pressure</li>
+</ul>
+<h2>How to drive this console</h2>
+<p>1. Type a prompt in the chat window to the left.<br>2. Watch the <strong>Agent Flow</strong> trace stream in real time.<br>3. When an analysis finishes, the report will replace this view automatically.</p>
+</body>
+</html>"""
+
+
+# -- Render helpers: draw ONLY, never write session state ----------------------
+async def _render_welcome() -> None:
+    el = cl.CustomElement(
+        name="ReportViewer",
+        props={"html": _WELCOME_HTML, "src": "", "title": "Welcome", "timestamp": ""},
+        display="side",
+    )
+    await cl.ElementSidebar.set_title("ABOUT YENTLGUARD")
+    await cl.ElementSidebar.set_elements([el], key=f"welcome-{uuid4().hex[:8]}")
+
+
+async def _render_uri(report_uri: str) -> None:
+    if report_uri.startswith("gs://"):
+        _, _, bucket_name, *parts = report_uri.split("/")
+    else:  # https://storage.googleapis.com/...
+        path = report_uri[len("https://storage.googleapis.com/"):]
+        bucket_name, *parts = path.split("/")
     blob_name = "/".join(parts)
-    blob = gcs.Client().bucket(bucket_name).blob(blob_name)
-    return blob.generate_signed_url(expiration=expiration_seconds, version="v4")
+    logger.info("[ui] _render_uri: uri=%s -> bucket=%s blob=%s", report_uri, bucket_name, blob_name)
 
-async def _push_report_to_sidebar_from_uri(report_uri: str) -> None:
-    """Push report HTML into the ElementSidebar using a signed URL.
+    # Download the report HTML in-process and hand it to ReportViewer via the
+    # `html` prop -- the SAME path the welcome screen uses. We deliberately do
+    # NOT point an iframe at /report-proxy/... : that relative URL resolves
+    # against the Chainlit app's own origin and is shadowed by Chainlit's SPA
+    # catch-all route, so the iframe just reloads the whole app -- which is the
+    # infinite "windows inside windows" nesting.
+    try:
+        html = gcs.Client().bucket(bucket_name).blob(blob_name).download_as_text()
+        logger.info("[ui] _render_uri: downloaded %d chars for %s", len(html), blob_name)
+    except Exception as e:
+        logger.exception("[ui] _render_uri: FAILED to download %s: %s", blob_name, e)
+        html = "<p style='color:#e6edf3;font-family:sans-serif;padding:24px'>Failed to load report: " + str(e) + "</p>"
 
-    Always sets current_report in session so _ensure_sidebar can compare.
-    """
-    signed_url = get_signed_url(report_uri)
-    
-    report_el = cl.CustomElement(
+    el = cl.CustomElement(
         name="ReportViewer",
         props={
-            "html": "",
-            "src": signed_url,
+            "html": html,
+            "src": "",
             "title": "Analysis Report",
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         },
         display="side",
     )
     await cl.ElementSidebar.set_title("ANALYSIS REPORT")
-    await cl.ElementSidebar.set_elements([report_el], key="report-panel")
-    cl.user_session.set("current_report", report_uri)
+    await cl.ElementSidebar.set_elements([el], key=f"report-{uuid4().hex[:8]}")
 
 
-async def _push_report_to_sidebar_mock(report_path: Path) -> None:
-    """Mock mode static report loader."""
-    try:
-        html = report_path.read_text(encoding="utf-8")
-    except OSError:
-        html = ""
-    report_el = cl.CustomElement(
+async def _render_path(report_path: Path) -> None:
+    html = report_path.read_text(encoding="utf-8")
+    el = cl.CustomElement(
         name="ReportViewer",
         props={
             "html": html,
@@ -98,80 +166,85 @@ async def _push_report_to_sidebar_mock(report_path: Path) -> None:
         display="side",
     )
     await cl.ElementSidebar.set_title("ANALYSIS REPORT")
-    await cl.ElementSidebar.set_elements([report_el], key="report-panel")
-    cl.user_session.set("current_report", str(report_path))
-
-# -- Welcome HTML --------------------------------------------------------------
-_WELCOME_HTML = """<!doctype html><html><head><meta charset='utf-8'>
-<title>Welcome to YentlGuard</title>
-<style>
-  body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:28px;
-       color:#e6edf3;background:#0f1117;}
-  h1{font-size:22px;margin:0 0 4px;} 
-  h2{font-size:15px;margin:24px 0 8px;
-     color:#e6edf3;border-bottom:2px solid #1D9E75;padding-bottom:4px;}
-  p { line-height: 1.5; font-size: 14px; }
-  ul { line-height: 1.5; font-size: 14px; }
-</style></head><body>
-<h1>YentlGuard</h1>
-<p><strong>Mechanistic interpretability for clinical-triage LLM bias</strong></p>
-<p>YentlGuard probes how clinical-triage language models shift confidence under demographic and sycophancy pressure and surfaces it with measurable signals:</p>
-<ul>
-  <li><strong>ΔM</strong> confidence-margin shift between paired vignettes</li>
-  <li><strong>CRR</strong> confidence recovery rate after a corrective prompt</li>
-  <li><strong>TAR</strong>  thought-allocation ratio across reasoning traces</li>
-  <li><strong>Sycophancy gap</strong>  divergence under social pressure</li>
-</ul>
-<h2>How to drive this console</h2>
-<p>1. Type a prompt in the chat window to the left.<br>
-2. Watch the <strong>Agent Flow</strong> trace stream in real time.<br>
-3. When an analysis finishes, the report will replace this view automatically.</p>
-</body></html>"""
-
-async def _push_welcome_to_sidebar() -> None:
-    """Push the welcome description into the ElementSidebar."""
-    report_el = cl.CustomElement(
-        name="ReportViewer",
-        props={
-            "html": _WELCOME_HTML,
-            "src": "",
-            "title": "Welcome",
-            "timestamp": "",
-        },
-        display="side",
-    )
-    await cl.ElementSidebar.set_title("ABOUT YENTLGUARD")
-    await cl.ElementSidebar.set_elements([report_el], key="report-panel")
-    cl.user_session.set("current_report", "welcome")
+    await cl.ElementSidebar.set_elements([el], key=f"report-{uuid4().hex[:8]}")
 
 
-async def _ensure_sidebar() -> None:
-    """Keep the analysis panel pinned across turns.
+# -- The ONE entry point. Everything goes through here. ------------------------
+async def show_report(target: str | None) -> None:
+    """Show `target` in the sidebar. Idempotent: a no-op if it's already shown.
+
+    target: "welcome", a gs://.../https:// report URI, or a local file path.
+    This is the only function that writes `current_report`.
     """
-    current = cl.user_session.get("current_report")
+    target = target or "welcome"
+    logger.info("[ui] show_report: requested=%r current=%r",
+                target, cl.user_session.get("current_report"))
 
-    # Always re-push the element into the sidebar to ensure it persists 
-    # across new turns, avoiding Chainlit's automatic garbage collection.
-    if current is None or current == "welcome":
-        await _push_welcome_to_sidebar()
-    elif current.startswith("gs://"):
-        await _push_report_to_sidebar_from_uri(current)
-    else:
-        # Mock mode fallback path
-        try:
-             await _push_report_to_sidebar_mock(Path(current))
-        except NameError:
-             await _push_welcome_to_sidebar()
+    # Already on screen -> don't touch the DOM (anti-flicker guard).
+    if target == cl.user_session.get("current_report"):
+        logger.info("[ui] show_report: no-op, already showing %r", target)
+        return
 
+    if target == "welcome":
+        logger.info("[ui] show_report: branch=WELCOME")
+        await _render_welcome()
+    elif target.startswith(("gs://", "https://storage.googleapis.com/")):
+        logger.info("[ui] show_report: branch=URI %s", target)
+        await _render_uri(target)
+    elif Path(target).exists():
+        logger.info("[ui] show_report: branch=LOCAL_PATH %s", target)
+        await _render_path(Path(target))
+    else:  # a path was passed but the file is gone -> fall back gracefully
+        logger.warning("[ui] show_report: target %r is neither a storage URI nor an existing path -> falling back to WELCOME", target)
+        await _render_welcome()
+        target = "welcome"
+
+    cl.user_session.set("current_report", target)
+    logger.info("[ui] show_report: current_report=%r", target)
+
+
+# GCS location of generated reports (override via env if your bucket differs).
+_REPORT_BUCKET = os.environ.get("YENTLGUARD_BUCKET", "yentlguard-analysis")
+_REPORT_PREFIX = os.environ.get("YENTLGUARD_REPORT_PREFIX", "reports/")
+
+
+def _latest_gcs_report() -> str | None:
+    """Return the https URL of the newest .html report in the GCS bucket, or
+    None if the bucket has no reports yet. Reports live only in GCS
+    (gs://<bucket>/reports/...), so this is what the welcome screen uses to
+    auto-load the most recent report on startup.
+    """
+    try:
+        client = gcs.Client()
+        blobs = [
+            b for b in client.list_blobs(_REPORT_BUCKET, prefix=_REPORT_PREFIX)
+            if b.name.endswith(".html")
+        ]
+        if not blobs:
+            logger.warning("[ui] _latest_gcs_report: NO .html reports under gs://%s/%s",
+                           _REPORT_BUCKET, _REPORT_PREFIX)
+            return None
+        latest = max(blobs, key=lambda b: (b.updated or b.time_created, b.name))
+        # Build the public https URL by concatenation (no f-string) so there is
+        # no chance of a brace-escaping mistake. _render_uri proxies it.
+        report_url = "https://storage.googleapis.com/" + _REPORT_BUCKET + "/" + latest.name
+        logger.info("[ui] _latest_gcs_report: %d report(s); latest=%s", len(blobs), report_url)
+        return report_url
+        # (superseded) url = f"https://storage.googleapis.com/{_REPORT_BUCKET}/{latest.name}"
+        # (superseded) return f"https://storage.googleapis.com/{_REPORT_BUCKET}/{latest.name}"
+    except Exception as e:
+        logger.exception("[ui] _latest_gcs_report: FAILED to list bucket %s: %s",
+                         _REPORT_BUCKET, e)
+        return None
 
 
 # -- Metric extraction ---------------------------------------------------------
 _METRIC_PATTERNS = {
-    "delta_m": re.compile(r"ΔM[=:\s]+([0-9.]+)"),
+    "delta_m": re.compile(r"\u0394M[=:\s]+([0-9.]+)"),
     "crr":     re.compile(r"CRR[=:\s]+([0-9.]+)"),
     "tar":     re.compile(r"TAR[=:\s]+([0-9.]+)"),
     "gap":     re.compile(r"gap[=:\s]+([0-9.]+)"),
-    "pss":     re.compile(r"PSS[=:\s]+([0-9.]+)"),
+    "delta_m_degradation": re.compile(r"delta_m_degradation[=:\s]+([0-9.]+)"),
 }
 
 
@@ -184,51 +257,72 @@ def _extract_metrics(text: str):
     return found
 
 
+_REPORT_URL_RE = re.compile(r"(?:gs://|https://storage\.googleapis\.com/)\S+?\.html")
+
+
+def _find_report_uri(raw) -> str | None:
+    """Pull a GCS .html report URL out of a tool result (string or JSON).
+
+    Robust to the exact result key/nesting: just look for a storage URL ending
+    in .html, preferring one under a /reports/ path.
+    """
+    if not raw:
+        return None
+    text = raw if isinstance(raw, str) else json.dumps(raw)
+    matches = _REPORT_URL_RE.findall(text)
+    if not matches:
+        return None
+    for m in matches:
+        if "/reports/" in m:
+            return m
+    return matches[0]
+
+
 # -- Tool registry -------------------------------------------------------------
 _TOOL_META = {
     # BigQuery
-    "list_experiments":             ("BQ",  "LIST EXPERIMENTS"),
-    "get_pss_summary":              ("BQ",  "PSS SUMMARY"),
-    "get_gate_fire_rate":           ("BQ",  "GATE FIRE RATE"),
-    "get_sycophancy_verdict":       ("BQ",  "SYCOPHANCY VERDICT"),
-    "query_bigquery":               ("BQ",  "CUSTOM QUERY"),
+    "list_experiments":                ("BQ",  "LIST EXPERIMENTS"),
+    "get_delta_m_degradation_summary": ("BQ",  "delta_m_degradation SUMMARY"),
+    "get_gate_fire_rate":              ("BQ",  "GATE FIRE RATE"),
+    "get_sycophancy_verdict":          ("BQ",  "SYCOPHANCY VERDICT"),
+    "query_bigquery":                  ("BQ",  "CUSTOM QUERY"),
     # Runner
-    "triage_vignette":              ("RUN", "TRIAGE VIGNETTE"),
-    "run_baseline":                 ("RUN", "BASELINE PASS"),
-    "run_experiment":               ("RUN", "EXPERIMENT"),
-    "analyze_run":                  ("RUN", "ANALYZE RUN"),
+    "triage_vignette":                 ("RUN", "TRIAGE VIGNETTE"),
+    "run_baseline":                    ("RUN", "BASELINE PASS"),
+    "run_experiment":                  ("RUN", "EXPERIMENT"),
+    "analyze_run":                     ("RUN", "ANALYZE RUN"),
     # Phoenix function tools
-    "annotate_spans_with_verdicts": ("PHX", "ANNOTATE SPANS"),
-    "push_prompt_version":          ("PHX", "PUSH PROMPT"),
-    "list_prompt_versions":         ("PHX", "LIST PROMPTS"),
-    "create_anomaly_dataset":       ("PHX", "ANOMALY DATASET"),
+    "annotate_spans_with_verdicts":    ("PHX", "ANNOTATE SPANS"),
+    "push_prompt_version":             ("PHX", "PUSH PROMPT"),
+    "list_prompt_versions":            ("PHX", "LIST PROMPTS"),
+    "create_anomaly_dataset":          ("PHX", "ANOMALY DATASET"),
     # Phoenix MCP
-    "list-projects":                ("MCP", "LIST PROJECTS"),
-    "get-project":                  ("MCP", "GET PROJECT"),
-    "list-traces":                  ("MCP", "LIST TRACES"),
-    "get-trace":                    ("MCP", "GET TRACE"),
-    "get-spans":                    ("MCP", "GET SPANS"),
-    "get-span-annotations":         ("MCP", "SPAN ANNOTATIONS"),
-    "list-annotation-configs":      ("MCP", "ANNOTATION CONFIGS"),
-    "list-sessions":                ("MCP", "LIST SESSIONS"),
-    "get-session":                  ("MCP", "GET SESSION"),
-    "list-prompts":                 ("MCP", "LIST PROMPTS"),
-    "get-prompt":                   ("MCP", "GET PROMPT"),
-    "get-latest-prompt":            ("MCP", "LATEST PROMPT"),
-    "get-prompt-by-identifier":     ("MCP", "GET PROMPT"),
-    "get-prompt-version":           ("MCP", "PROMPT VERSION"),
-    "list-prompt-versions":         ("MCP", "PROMPT VERSIONS"),
-    "get-prompt-version-by-tag":    ("MCP", "PROMPT BY TAG"),
-    "list-prompt-version-tags":     ("MCP", "PROMPT TAGS"),
-    "add-prompt-version-tag":       ("MCP", "TAG PROMPT"),
-    "upsert-prompt":                ("MCP", "UPSERT PROMPT"),
-    "list-datasets":                ("MCP", "LIST DATASETS"),
-    "get-dataset":                  ("MCP", "GET DATASET"),
-    "get-dataset-examples":         ("MCP", "DATASET EXAMPLES"),
-    "get-dataset-experiments":      ("MCP", "DATASET EXPERIMENTS"),
-    "add-dataset-examples":         ("MCP", "ADD EXAMPLES"),
-    "list-experiments-for-dataset": ("MCP", "LIST EXPERIMENTS"),
-    "get-experiment-by-id":         ("MCP", "GET EXPERIMENT"),
+    "list-projects":                   ("MCP", "LIST PROJECTS"),
+    "get-project":                     ("MCP", "GET PROJECT"),
+    "list-traces":                     ("MCP", "LIST TRACES"),
+    "get-trace":                       ("MCP", "GET TRACE"),
+    "get-spans":                       ("MCP", "GET SPANS"),
+    "get-span-annotations":            ("MCP", "SPAN ANNOTATIONS"),
+    "list-annotation-configs":         ("MCP", "ANNOTATION CONFIGS"),
+    "list-sessions":                   ("MCP", "LIST SESSIONS"),
+    "get-session":                     ("MCP", "GET SESSION"),
+    "list-prompts":                    ("MCP", "LIST PROMPTS"),
+    "get-prompt":                      ("MCP", "GET PROMPT"),
+    "get-latest-prompt":               ("MCP", "LATEST PROMPT"),
+    "get-prompt-by-identifier":        ("MCP", "GET PROMPT"),
+    "get-prompt-version":              ("MCP", "PROMPT VERSION"),
+    "list-prompt-versions":            ("MCP", "PROMPT VERSIONS"),
+    "get-prompt-version-by-tag":       ("MCP", "PROMPT BY TAG"),
+    "list-prompt-version-tags":        ("MCP", "PROMPT TAGS"),
+    "add-prompt-version-tag":          ("MCP", "TAG PROMPT"),
+    "upsert-prompt":                   ("MCP", "UPSERT PROMPT"),
+    "list-datasets":                   ("MCP", "LIST DATASETS"),
+    "get-dataset":                     ("MCP", "GET DATASET"),
+    "get-dataset-examples":            ("MCP", "DATASET EXAMPLES"),
+    "get-dataset-experiments":         ("MCP", "DATASET EXPERIMENTS"),
+    "add-dataset-examples":            ("MCP", "ADD EXAMPLES"),
+    "list-experiments-for-dataset":    ("MCP", "LIST EXPERIMENTS"),
+    "get-experiment-by-id":            ("MCP", "GET EXPERIMENT"),
 }
 
 # Sub-agent names -> short display label
@@ -259,11 +353,11 @@ def _format_tool_output(raw):
         pretty = json.dumps(data, indent=2)
         lines = pretty.splitlines()
         if len(lines) > 40:
-            return "\n".join(lines[:40]) + f"\n\n… {len(lines) - 40} more lines"
+            return "\n".join(lines[:40]) + f"\n\n\u2026 {len(lines) - 40} more lines"
         return pretty
     except (json.JSONDecodeError, TypeError):
         if len(raw) > 800:
-            return raw[:800] + f"\n\n… {len(raw) - 800} more chars"
+            return raw[:800] + f"\n\n\u2026 {len(raw) - 800} more chars"
         return raw
 
 
@@ -271,7 +365,7 @@ def _step_name(tool_name, author):
     badge, label = _tool_label(tool_name)
     prefix = _AGENT_PREFIX.get(author or "", "")
     if prefix and prefix != "supervisor":
-        return f"[{badge}] {label}  ·  {prefix}"
+        return f"[{badge}] {label}  \u00b7  {prefix}"
     return f"[{badge}] {label}"
 
 
@@ -297,16 +391,29 @@ def _get_tool_args(event):
 
 
 def _get_tool_result(event):
+    import json
+
+    def _to_str(val):
+        if isinstance(val, (dict, list)):
+            return json.dumps(val)
+        # Handle protobuf MapComposite or Struct which might act like dicts
+        if hasattr(val, "items") and callable(getattr(val, "items")):
+            try:
+                return json.dumps(dict(val))
+            except Exception:
+                pass
+        return str(val)
+
     if hasattr(event, "tool_result") and event.tool_result:
         tr = event.tool_result
-        return str(tr.output) if hasattr(tr, "output") else str(tr)
+        return _to_str(tr.output) if hasattr(tr, "output") else str(tr)
     if hasattr(event, "content") and event.content:
         for part in getattr(event.content, "parts", []):
             if hasattr(part, "function_response") and part.function_response:
                 resp = part.function_response
                 raw = getattr(resp, "response", None) or getattr(resp, "output", None)
                 if raw is not None:
-                    return str(raw)
+                    return _to_str(raw)
     return None
 
 
@@ -333,42 +440,12 @@ def _is_final(event):
     )
 
 
-# -- Starter prompts (onboarding) ----------------------------------------------
-# @cl.set_starters
-# async def starters():
-#     return [
-#         cl.Starter(
-#             label="What experiments do I have?",
-#             message="What experiments do I have?",
-#         ),
-#         cl.Starter(
-#             label="What prompt fires if I run now?",
-#             message="What prompt will be used if I run another experiment right now?",
-#         ),
-#         cl.Starter(
-#             label="Analyze my latest run",
-#             message="Run analyze_run on my most recent run and load the report.",
-#         ),
-#         cl.Starter(
-#             label="Sycophancy verdict breakdown",
-#             message="Give me the sycophancy verdict breakdown for my latest experiment.",
-#         ),
-#         cl.Starter(
-#             label="Annotate spans with verdicts",
-#             message="Annotate the spans from my latest run with sycophancy verdicts.",
-#         ),
-#     ]
-
-
-
 # -- Chainlit lifecycle --------------------------------------------------------
 @cl.on_chat_start
 async def on_start():
     session_id = secrets.token_hex(8)
     cl.user_session.set("session_id", session_id)
-    # current_report starts as None so _ensure_sidebar will push on first turn.
     cl.user_session.set("current_report", None)
-
     if _ADK_AVAILABLE:
         await _runner.session_service.create_session(
             app_name="yentlguard",
@@ -376,28 +453,21 @@ async def on_start():
             session_id=session_id,
         )
 
-    # Always load the latest report or welcome screen immediately.
-    await _ensure_sidebar()
-
-    # IMPORTANT: do NOT send a cl.Message() here. Chainlit only renders the
-    # @cl.set_starters prompts while the thread is EMPTY — sending any message
-    # on chat start makes the thread non-empty and hides the starters.
+    # Auto-load the latest report from the GCS bucket; else show welcome.
+    startup_target = _latest_gcs_report() or "welcome"
+    logger.info("[ui] on_start: session=%s startup_target=%r", session_id, startup_target)
+    await show_report(startup_target)
 
 
 @cl.on_message
 async def on_message(message: cl.Message):
     session_id = cl.user_session.get("session_id")
 
-    # Check for a NEW report only — no-op if same report is already pinned.
-    await _ensure_sidebar()
-
     if not _ADK_AVAILABLE:
         await _handle_mock(message.content)
         return
 
     turn_start = time.monotonic()
-
-    # Live agent-flow trace (inline, updates as events stream in).
     flow_state = {"events": [], "running": True, "elapsed": 0.0,
                   "agents": 0, "tools": 0}
     flow_el = cl.CustomElement(name="AgentFlow", props=dict(flow_state),
@@ -413,16 +483,15 @@ async def on_message(message: cl.Message):
         except Exception:
             pass
 
-    # Orchestration step tree: ORCHESTRATION -> <agent> -> <tool>.
-    orchestration = cl.Step(name="◆ ORCHESTRATION", type="run")
+    orchestration = cl.Step(name="\u25c6 ORCHESTRATION", type="run")
     await orchestration.send()
 
     response_msg = cl.Message(content="", author="YentlGuard")
     await response_msg.send()
 
     full_text = ""
-    open_tools = []          # stack of {step, tool, t0, ev}
-    agent_steps = {}         # author -> its run step
+    open_tools = []
+    agent_steps = {}
     seen_authors = set()
 
     def _push_event(**kw):
@@ -433,7 +502,7 @@ async def on_message(message: cl.Message):
         key = author or "yentlguard_agent"
         if key not in agent_steps:
             label = _agent_label(author)
-            astep = cl.Step(name=f"▸ {label}", type="run",
+            astep = cl.Step(name=f"\u25b8 {label}", type="run",
                             parent_id=orchestration.id)
             await astep.send()
             agent_steps[key] = astep
@@ -457,7 +526,6 @@ async def on_message(message: cl.Message):
         tool_result = _get_tool_result(event)
         text_parts = _get_text_parts(event)
 
-        # -- Tool call -> open a nested step + flow node --------------------
         if tool_name and not tool_result:
             astep = await _ensure_agent_step(author)
             badge, label = _tool_label(tool_name)
@@ -467,11 +535,10 @@ async def on_message(message: cl.Message):
             await step.send()
             try:
                 step.input = (f"{_FENCE}json\n{json.dumps(args, indent=2)}\n{_FENCE}"
-                              if args else "—")
+                              if args else "\u2014")
             except Exception:
                 step.input = str(args or "")
             await step.update()
-
             ev = _push_event(kind="tool", agent=_agent_label(author),
                              badge=badge, label=label, tool=tool_name,
                              status="running", duration=None)
@@ -480,14 +547,12 @@ async def on_message(message: cl.Message):
             open_tools.append({"step": step, "tool": tool_name,
                                "t0": time.monotonic(), "ev": ev})
 
-        # -- Tool result -> close the matching step + flow node ------------
         if tool_result and open_tools:
             entry = open_tools.pop()
             step = entry["step"]
             dur = time.monotonic() - entry["t0"]
             step.output = f"{_FENCE}\n{_format_tool_output(tool_result)}\n{_FENCE}"
             await step.update()
-
             node = flow_state["events"][entry["ev"]]
             node["status"] = "done"
             node["duration"] = round(dur, 2)
@@ -495,18 +560,32 @@ async def on_message(message: cl.Message):
 
             if entry["tool"] == "analyze_run":
                 try:
-                    data = json.loads(tool_result)
-                    new_report_uri = data.get("report_uri")
-                    if new_report_uri and new_report_uri != cl.user_session.get("current_report"):
-                        await _push_report_to_sidebar_from_uri(new_report_uri)
+                    import json, ast
+                    try:
+                        data = json.loads(tool_result)
+                    except json.JSONDecodeError:
+                        data = ast.literal_eval(tool_result)
+                    if isinstance(data, list) and len(data) > 0:
+                        data = data[0]
+
+                    # Robust: scan the result for a GCS .html URL regardless of
+                    # which key/nesting analyze_run uses; fall back to the key.
+                    new_report_uri = _find_report_uri(tool_result) or (
+                        data.get("report_uri") if isinstance(data, dict) else None
+                    )
+                    logger.info("[ui] analyze_run: detected report_uri=%r", new_report_uri)
+                    if not new_report_uri:
+                        logger.warning("[ui] analyze_run: no report URL in tool_result; head=%s",
+                                       str(tool_result)[:300])
+                    if new_report_uri:
+                        await show_report(new_report_uri)
                         await cl.Message(
-                            content=f"Report loaded → right panel · `{new_report_uri.split('/')[-1]}`",
+                            content=f"Report loaded \u2192 right panel \u00b7 `{new_report_uri.split('/')[-1]}`",
                             author="YentlGuard",
                         ).send()
-                except json.JSONDecodeError:
-                    pass
+                except Exception as e:
+                    logger.exception("[ui] analyze_run: FAILED to load report to sidebar: %s", e)
 
-        # -- Text streaming ------------------------------------------------
         if text_parts:
             is_supervisor = author in ("yentlguard_agent", None)
             if is_supervisor or _is_final(event):
@@ -516,22 +595,22 @@ async def on_message(message: cl.Message):
 
     await response_msg.update()
 
-    # Close any dangling steps and the orchestration summary.
     for entry in open_tools:
         try:
             entry["step"].output = "(interrupted)"
             await entry["step"].update()
         except Exception:
             pass
+
     for astep in agent_steps.values():
         astep.output = "done"
         await astep.update()
+
     orchestration.output = (
-        f"{flow_state['agents']} agent(s) · {flow_state['tools']} tool call(s) · "
+        f"{flow_state['agents']} agent(s) \u00b7 {flow_state['tools']} tool call(s) \u00b7 "
         f"{round(time.monotonic() - turn_start, 1)}s"
     )
     await orchestration.update()
-
     flow_state["running"] = False
     await _refresh_flow()
 
@@ -542,12 +621,12 @@ async def on_message(message: cl.Message):
         await cl.Message(content="", elements=[metric_el],
                          author="YentlGuard").send()
 
-    # End-of-turn sidebar check: only update if a NEW report was written.
-    await _ensure_sidebar()
-
 
 # -- Mock runner (no GCP creds needed) -----------------------------------------
-_DEMO_REPORT_HTML = """<!doctype html><html><head><meta charset='utf-8'>
+_DEMO_REPORT_HTML = """<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'>
 <title>YentlGuard Analysis (demo)</title>
 <style>
   body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;padding:28px;
@@ -564,24 +643,28 @@ _DEMO_REPORT_HTML = """<!doctype html><html><head><meta charset='utf-8'>
   table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px;}
   th,td{border:1px solid #30363d;padding:8px 10px;text-align:left;}
   th{background:#161b22;}
-</style></head><body>
-<h1>YentlGuard — Analysis Report (DEMO)</h1>
-<div class='sub'>gemini-2.5-pro · medium budget · 70 vignettes · generated in mock mode</div>
+</style>
+</head>
+<body>
+<h1>YentlGuard \u2014 Analysis Report (DEMO)</h1>
+<div class='sub'>gemini-2.5-pro \u00b7 medium budget \u00b7 70 vignettes \u00b7 generated in mock mode</div>
 <div class='cards'>
-  <div class='card'><div class='k'>Mean ΔM</div><div class='v amber'>1.42</div></div>
+  <div class='card'><div class='k'>Mean \u0394M</div><div class='v amber'>1.42</div></div>
   <div class='card'><div class='k'>Mean CRR</div><div class='v teal'>0.71</div></div>
   <div class='card'><div class='k'>Sycophancy gap</div><div class='v coral'>0.28</div></div>
   <div class='card'><div class='k'>Gate fire rate</div><div class='v amber'>34%</div></div>
 </div>
 <h2>Per-variant summary</h2>
-<table><tr><th>Variant</th><th>ΔM</th><th>CRR</th><th>Verdict</th></tr>
+<table><tr><th>Variant</th><th>\u0394M</th><th>CRR</th><th>Verdict</th></tr>
 <tr><td>female</td><td>1.61</td><td>0.68</td><td>ambiguous</td></tr>
 <tr><td>nb_label_only</td><td>1.23</td><td>0.74</td><td>recovered</td></tr>
-<tr><td>control</td><td>0.18</td><td>0.97</td><td>clean</td></tr></table>
+<tr><td>control</td><td>0.18</td><td>0.97</td><td>clean</td></tr>
+</table>
 <h2>Notes</h2>
 <p>This is a self-contained placeholder served by the Chainlit mock runner so the
 report panel demonstrates end-to-end without GCP credentials.</p>
-</body></html>"""
+</body>
+</html>"""
 
 
 def _write_demo_report() -> Path:
@@ -596,7 +679,6 @@ def _write_demo_report() -> Path:
 async def _handle_mock(query: str):
     """Exercise the full multi-agent flow with realistic fake data."""
     turn_start = time.monotonic()
-
     flow_state = {"events": [], "running": True, "elapsed": 0.0,
                   "agents": 0, "tools": 0}
     flow_el = cl.CustomElement(name="AgentFlow", props=dict(flow_state),
@@ -611,10 +693,9 @@ async def _handle_mock(query: str):
         except Exception:
             pass
 
-    orchestration = cl.Step(name="◆ ORCHESTRATION", type="run")
+    orchestration = cl.Step(name="\u25c6 ORCHESTRATION", type="run")
     await orchestration.send()
 
-    # Scripted: supervisor -> analyst(BQ) -> observ(MCP) -> runner(RUN).
     script = [
         ("data_analyst_agent",  "list_experiments",   '{"limit": 5}',
          '[{"experiment_id":"a1b2c3d4","label":"gemini-2.5-pro medium female",'
@@ -633,10 +714,9 @@ async def _handle_mock(query: str):
             flow_state["events"].append({"kind": "agent", "agent": label,
                                          "status": "active"})
             await _refresh()
-        astep = cl.Step(name=f"▸ {label}", type="run",
+        astep = cl.Step(name=f"\u25b8 {label}", type="run",
                         parent_id=orchestration.id)
         await astep.send()
-
         badge, tlabel = _tool_label(tool)
         step = cl.Step(name=_step_name(tool, author), type="tool",
                        parent_id=astep.id, show_input=True)
@@ -660,16 +740,14 @@ async def _handle_mock(query: str):
         if tool == "analyze_run":
             report = _write_demo_report()
             await asyncio.sleep(0.3)
-            # Only push if this is genuinely new.
-            if str(report) != cl.user_session.get("current_report"):
-                await _push_report_to_sidebar_mock(report)
-                await cl.Message(
-                    content=f"Report loaded → right panel · `{report.name}`",
-                    author="YentlGuard",
-                ).send()
+            await show_report(str(report))
+            await cl.Message(
+                content=f"Report loaded \u2192 right panel \u00b7 `{report.name}`",
+                author="YentlGuard",
+            ).send()
 
-    orchestration.output = (f"{flow_state['agents']} agent(s) · "
-                            f"{flow_state['tools']} tool call(s) · "
+    orchestration.output = (f"{flow_state['agents']} agent(s) \u00b7 "
+                            f"{flow_state['tools']} tool call(s) \u00b7 "
                             f"{round(time.monotonic() - turn_start, 1)}s")
     await orchestration.update()
     flow_state["running"] = False
@@ -678,10 +756,10 @@ async def _handle_mock(query: str):
     msg = cl.Message(content="", author="YentlGuard")
     await msg.send()
     demo_text = (
-        "Found **1 experiment batch**. Experiment `a1b2c3d4` — gemini-2.5-pro · "
-        "medium budget · female + nb_label_only · 70 vignettes.\n\n"
+        "Found **1 experiment batch**. Experiment `a1b2c3d4` \u2014 gemini-2.5-pro \u00b7 "
+        "medium budget \u00b7 female + nb_label_only \u00b7 70 vignettes.\n\n"
         "Gate fire rate **34%** across female vignettes. "
-        "Mean ΔM=1.42, mean CRR=0.71, sycophancy gap=0.28 — ambiguous range. "
+        "Mean \u0394M=1.42, mean CRR=0.71, sycophancy gap=0.28 \u2014 ambiguous range. "
         "The corrective prompt recovers some confidence but does not cleanly "
         "separate from the distractor controls.\n\n"
         "Suggested next: `get_sycophancy_verdict` on this experiment_id."
@@ -694,11 +772,8 @@ async def _handle_mock(query: str):
     metric_el = cl.CustomElement(
         name="MetricPulse",
         props={"metrics": {"delta_m": "1.42", "crr": "0.71",
-                           "tar": "0.93", "gap": "0.28", "pss": "0.40"}},
+                           "tar": "0.93", "gap": "0.28", "delta_m_degradation": "0.40"}},
         display="inline",
     )
     await cl.Message(content="", elements=[metric_el],
                      author="YentlGuard").send()
-
-    # End-of-turn sidebar check: only update if a NEW report appeared.
-    await _ensure_sidebar()

@@ -147,3 +147,4 @@ mysql_dump.log
 *test/*
 **/yentlguard_analysis/
 **/.files
+**/.adk

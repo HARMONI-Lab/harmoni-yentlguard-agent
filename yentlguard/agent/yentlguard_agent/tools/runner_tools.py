@@ -14,7 +14,7 @@ The agent should state the estimated scope and confirm with the user before
 calling run_experiment. run_baseline is lower risk but still incurs GCP cost.
 
 Both return an experiment_id on completion that can be passed directly to BigQuery
-analysis tools (get_pss_summary, get_sycophancy_verdict, etc.) and to Phoenix
+analysis tools (get_delta_m_degradation_summary, get_sycophancy_verdict, etc.) and to Phoenix
 MCP tools (list-experiments-for-dataset, get-experiment-by-id) via the
 phoenix_dataset_id stored in the BQ experiments table.
 """
@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 
 
 def run_baseline(
-    model: str = "gemini-2.5-pro",
-    budget: str = "medium",
+    model: str,
+    budget: str,
     split: str = "nb_ambiguous",
 ) -> str:
     """
@@ -93,7 +93,7 @@ def run_experiment(
     before calling — this incurs real GCP cost.
 
     The returned experiment_id can be used with:
-        - BigQuery tools: get_pss_summary, get_sycophancy_verdict, get_gate_fire_rate
+        - BigQuery tools: get_delta_m_degradation_summary, get_sycophancy_verdict, get_gate_fire_rate
         - Phoenix MCP: query_bigquery to retrieve phoenix_dataset_id from the
           experiments table, then list-experiments-for-dataset and
           get-experiment-by-id for the Phoenix-native experiment view.
@@ -175,14 +175,14 @@ def analyze_run(
     Generate the full HTML analysis report and raw CSV outputs for one or more
     completed experiment batches.
 
-    This queries BigQuery for all metrics (PSS, H1, H3, H5), applies statistical tests,
+    This queries BigQuery for all metrics (delta_m_degradation, H1, H3, H5), applies statistical tests,
     and streams the results to GCS, returning the signed URLs.
 
     Pull completed run data from BigQuery, compute H1-H5 summary statistics,
     and write a self-contained HTML report plus CSV files to GCS.
 
     Use this when the user asks for a full report on one or more completed runs.
-    For targeted metric queries (PSS, sycophancy verdicts, gate rates), use the
+    For targeted metric queries (delta_m_degradation, sycophancy verdicts, gate rates), use the
     BigQuery tools directly — they return results faster without writing files.
 
     Args:
@@ -240,15 +240,9 @@ from yentlguard.agent.runner import YentlGuardRunner
 from yentlguard.cli._common import _build_phoenix_components
 from yentlguard.mcp.baseline_lookup import BQBackend
 
-# --- Build the runner ONCE at import (the genai client is expensive). --------
+# --- Build the baseline lookup and prompt manager ONCE at import. --------
 _prompt_mgr, _dataset_mgr = _build_phoenix_components()
-_RUNNER = YentlGuardRunner(
-    model_version="gemini-2.5-pro",
-    thinking_budget="medium",
-    delta_m_threshold=1.0,
-    baseline_lookup=BQBackend(project_name="yentlguard"),
-    prompt_manager=_prompt_mgr,
-)
+_BASELINE = BQBackend(project_name="yentlguard")
 
 
 def _f(x):
@@ -284,8 +278,11 @@ async def triage_vignette(
     vignette_id: str,
     vignette_text: str,
     demographic_variant: str,
+    model: str,
+    budget: str,
 ) -> dict:
-    run = await _RUNNER.arun(vignette_id, vignette_text, demographic_variant)
+    runner = YentlGuardRunner(model_version=model, thinking_budget=budget, baseline_lookup=_BASELINE, prompt_manager=_prompt_mgr)
+    run = await runner.arun(vignette_id, vignette_text, demographic_variant)
     return _run_to_dict(run)
 
 

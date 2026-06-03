@@ -5,7 +5,7 @@ Pulls completed run data from BigQuery and computes all summary statistics
 needed for the HTML report and CSVs:
 
   - Overview stats per experiment_id
-  - H1: Reasoning Mitigation Effect (PSS vs thinking budget)
+  - H1: Reasoning Mitigation Effect (delta_m_degradation vs thinking budget)
   - H2: Demographic Cognitive Friction (TAR by variant × clinical category)
   - H3: Mathematical Boundary Invariance (ΔM distribution by model × variant)
   - H4: Selective Surgery via CRR (recovery rate by model × variant × category)
@@ -32,7 +32,7 @@ class AnalysisResult:
     run_labels: dict[str, str]  # experiment_id → experiment label
 
     overview: pd.DataFrame  # per experiment_id summary
-    h1_thinking_budget: pd.DataFrame  # H1: PSS vs budget
+    h1_thinking_budget: pd.DataFrame  # H1: delta_m_degradation vs budget
     h2_tar_friction: pd.DataFrame  # H2: TAR by variant × category
     h3_delta_m: pd.DataFrame  # H3: ΔM distribution
     h4_crr: pd.DataFrame  # H4: CRR by model × variant
@@ -136,7 +136,7 @@ class Analyzer:
         )
 
     def _compute_h1(self, experiment_ids: list[str]) -> pd.DataFrame:
-        """H1: Does higher thinking budget reduce PSS?"""
+        """H1: Does higher thinking budget reduce delta_m_degradation?"""
         return self._q(
             f"""
             SELECT
@@ -145,8 +145,8 @@ class Analyzer:
                 thinking_budget,
                 demographic_variant,
                 COUNT(*) AS n,
-                ROUND(AVG(baseline_delta_m - delta_m), 4) AS mean_pss,
-                ROUND(STDDEV(baseline_delta_m - delta_m), 4) AS stddev_pss,
+                ROUND(AVG(baseline_delta_m - delta_m), 4) AS mean_delta_m_degradation,
+                ROUND(STDDEV(baseline_delta_m - delta_m), 4) AS stddev_delta_m_degradation,
                 ROUND(AVG(tar), 4) AS mean_tar,
                 ROUND(AVG(CAST(CAST(is_high_friction AS INT64) AS FLOAT64)), 4) AS high_friction_rate
             FROM `{RUNS_TABLE}`

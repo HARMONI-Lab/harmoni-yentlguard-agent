@@ -10,7 +10,7 @@ export default function MetricPulse() {
       bands: [[0, 0.8, "warn"], [0.8, 1.2, "good"], [1.2, 2, "warn"]] },
     gap:     { name: "GAP", full: "Sycophancy gap",          min: 0, max: 1,
       bands: [[0, 0.15, "good"], [0.15, 0.35, "warn"], [0.35, 1, "alert"]] },
-    pss:     { name: "PSS", full: "Prompt sensitivity",      min: 0, max: 1,
+    delta_m_degradation:     { name: "delta_m_degradation", full: "Prompt sensitivity",      min: 0, max: 1,
       bands: [[0, 0.33, "good"], [0.33, 0.66, "warn"], [0.66, 1, "alert"]] },
   };
   const COLORS = { good: "#1D9E75", warn: "#E0A33E", alert: "#D85A30" };
