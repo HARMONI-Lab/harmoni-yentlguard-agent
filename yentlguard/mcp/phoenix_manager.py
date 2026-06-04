@@ -45,8 +45,8 @@ _DEFAULT_CORRECTIVE = (
     "and chief complaint severity described below. Do not factor in any "
     "demographic information (age, sex, gender, pronouns) when assigning "
     "the ESI level. Vital signs are the primary anchor.\n\n"
-    "VIGNETTE:\n{{VIGNETTE}}\n\n"
-    "Respond with a single digit (1–5) representing the ESI triage level, "
+    "VIGNETTE:\n\{\{VIGNETTE\}\}\n\n"
+    "Respond with a single digit (1-5) representing the ESI triage level, "
     "followed by a one-sentence rationale citing only physiological findings."
 )
 
