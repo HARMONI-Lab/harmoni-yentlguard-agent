@@ -1,6 +1,6 @@
 # YentlGuard · Chainlit Interface
 
-Demo-optimized agent UI for HARMONI Lab's YentlGuard mechanistic interpretability framework.
+Demo-optimized agent UI for YentlGuard mechanistic interpretability framework.
 
 ## File structure
 
@@ -10,7 +10,7 @@ yentlguard_ui/
 ├── .chainlit/
 │   └── config.toml                 ← theme, sidebar width, feature flags
 └── public/
-    ├── theme.css                   ← HARMONI Lab dark instrument theme
+    ├── theme.css                   ← Dark instrument theme
     ├── reports/                    ← symlink → results/ (auto-created on startup)
     └── elements/
         ├── ReportViewer.jsx        ← iframe-based analysis report panel

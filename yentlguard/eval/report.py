@@ -7,23 +7,6 @@ All CSS, JS, and data are inlined — no external dependencies at render time.
 Design: dark scientific instrument. Monospace data. Teal/coral accents.
 Dense information layout that screenshots cleanly for papers.
 
-Changes from v1:
-  - Nav bar removed.
-  - Run ID pills removed.
-  - Top summary metric cards removed (duplicated overview cards below).
-  - Each section now has a hypothesis-block callout with methodological
-    description of what the metric measures and how to interpret results.
-  - Tables narrowed — dropped redundant or low-signal columns per section:
-      overview:    dropped n_variants, n_gate_fired (in overview cards)
-      h1:          dropped model_family
-      h2:          dropped stddev_tar, mean_output_tokens
-      h3:          dropped stddev_delta_m, min/max_delta_m, model_family
-      h4:          dropped stddev_crr, mean_delta_m_pass2
-      sycophancy:  dropped individual distractor CRRs, kept max_distractor_crr
-      gate_stats:  dropped thinking_budget (redundant in this context)
-  - Cross-model pivot wrapped in <details> (collapsed by default).
-  - mean_pss renamed to mean_dm_degradation throughout.
-  - Color-coded key columns: teal = good, coral = bad, violet = ambiguous.
 """
 
 from datetime import datetime, timezone
@@ -33,7 +16,7 @@ from google.cloud import storage as gcs
 
 from yentlguard.eval.analyze import AnalysisResult
 
-# ── Colour tokens (HARMONI Lab palette) ──────────────────────────────────────
+# ── Colour tokens ──────────────────────────────────────
 TEAL = "#1D9E75"
 CORAL = "#D85A30"
 VIOLET = "#7F77DD"
@@ -571,7 +554,7 @@ def generate_html_report(
 <body>
 
 <header class="report-header">
-  <div class="header-lab">HARMONI Lab · YentlGuard</div>
+  <div class="header-lab">YentlGuard</div>
   <h1 class="header-title">Mechanistic Interpretability<br>Analysis Report</h1>
   <p class="header-subtitle">
     Token-level confidence margins, Thought Allocation Ratios, and Confidence Recovery Rates
@@ -596,7 +579,7 @@ def generate_html_report(
 <main>{body_content}</main>
 
 <footer>
-  <span>YentlGuard · HARMONI Lab</span>
+  <span>YentlGuard</span>
   <span>Generated {generated_at}</span>
 </footer>
 

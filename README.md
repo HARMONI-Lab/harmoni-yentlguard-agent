@@ -68,7 +68,7 @@ Requires Python 3.11+. We strongly recommend using a virtual environment.
 
 ```bash
 # Clone the repository
-git clone https://github.com/harmonilab/yentlguard.git
+git clone https://github.com/HARMONI-Lab/harmoni-yentlguard-agent.git
 cd yentlguard
 
 # Install the package with core dependencies
