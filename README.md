@@ -1,22 +1,70 @@
 # YentlGuard
 
-**Mechanistic interpretability layer for clinical triage LLM bias — built on [YentlBench](https://github.com/harmonilab/yentlbench)**.
+![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
+![License MIT](https://img.shields.io/badge/license-MIT-green.svg)
+![Gemini](https://img.shields.io/badge/Model-Gemini%202.5--pro-blueviolet)
 
-YentlGuard provides a structured evaluation pipeline and an agent framework to analyze, detect, and mitigate gender bias in clinical triage scenarios powered by Large Language Models (LLMs), focusing specifically on the capabilities of Google Vertex AI and Gemini models.
+**Mechanistic interpretability layer for clinical triage LLM bias.**
 
-It leverages [Arize Phoenix](https://phoenix.arize.com/) for deep telemetry, prompt management, and experiment tracking, while persisting evaluation runs directly to Google BigQuery for further analysis and reporting.
+YentlGuard provides a structured evaluation pipeline and an advanced **Multi-Agent Framework** to analyze, detect, and mitigate gender bias in clinical triage scenarios powered by Large Language Models (LLMs). Specifically designed for reasoning models like Google's Gemini series, YentlGuard goes beyond basic evaluation by providing an interactive AI agent to conduct deep mechanistic interpretability research on the fly.
 
-## Features
+By integrating **Arize Phoenix** for telemetry and **Google BigQuery** for robust analytical storage, YentlGuard powers end-to-end research workflows: from prompt engineering and span tracing to statistical analysis and sycophancy detection.
 
-- **Mechanistic Evaluation:** Run two-pass mechanistic tests (baseline and variants) using YentlBench vignettes.
-- **Arize Phoenix Integration:** Comprehensive tracing, span annotation, dataset management, and prompt versioning.
-- **BigQuery Storage:** Centralized storage of evaluation results and experiments for easy querying and reporting.
-- **ADK Agent Framework:** Built-in AI Agent powered by `google-adk` for interaction and deeper analysis.
-- **Detailed Analytics:** Automatically pull BigQuery run data, compute hypotheses (H1–H5), and generate HTML reports and CSV summaries.
+---
+
+## Key Features
+
+- **Mechanistic Evaluation (Two-Pass Pipeline):** Execute structured, multi-pass mechanistic tests (baseline and variant branches) against YentlBench clinical vignettes to measure bias at a token and thought level.
+- **Advanced Agent Framework:** An interactive AI research assistant powered by Google ADK (`google-adk`), orchestrating specialized sub-agents for data analysis, observability, and experiment execution.
+- **Arize Phoenix Integration:** Comprehensive tracing, span annotation, prompt versioning, and dataset management directly accessible via the Observability sub-agent and MCP (Model Context Protocol).
+- **BigQuery Storage & Analytics:** Centralized, immutable storage of evaluation results, allowing the agent to dynamically compute complex hypotheses, degradation metrics, and gate fire rates.
+- **Automated Reporting:** Automatically pull BigQuery run data, compute metrics, and generate detailed HTML reports and CSV summaries of experimental runs.
+
+---
+
+## The YentlGuard Agent Framework
+
+The crown jewel of YentlGuard is its **Multi-Agent Architecture** designed to assist researchers in evaluating LLM bias. It utilizes a root supervisor that intelligently delegates tasks to specialized domain agents based on user queries:
+
+### 1. Root Supervisor Agent
+Acts as the orchestrator. It parses the user's research request, formulates an execution plan, and transfers control to the appropriate sub-agents via ADK transfer, synthesizing their findings into a final, direct report.
+
+### 2. Data Analyst Agent
+Your BigQuery and statistics expert. It specializes in:
+- Extracting BigQuery metrics and calculating **ΔM (Token Confidence Margin)** degradation.
+- Computing **TAR (Thought Allocation Ratio)** for reasoning tokens (pass 1).
+- Analyzing **CRR (Confidence Recovery Rate)**.
+- Evaluating **Sycophancy Verdicts**: Distinguishing between genuine debiasing (CRR gap > 0.3) and sycophantic compliance (CRR gap < 0.1).
+- Monitoring safety gate fire rates across models.
+
+### 3. Observability & Prompt Engineer Agent
+Your Arize Phoenix integration expert. It specializes in:
+- **Trace/Span Exploration:** Finding specific vignette execution traces and drill-downs.
+- **Span Annotation:** Non-destructively annotating Phoenix spans with calculated sycophancy verdicts for visual analysis.
+- **Prompt Versioning:** Iterating, pushing, and tagging prompt templates (e.g., corrective vs. distractor prompts) mapped directly to Phoenix.
+- **Anomaly Datasets:** Automatically creating Phoenix datasets for edge cases (e.g., when the safety gate fires >60% of the time).
+
+### 4. Experiment Runner Agent
+Safely orchestrates long-running Gemini evaluations. It handles:
+- Running `nb_ambiguous` baselines to seed Phoenix spans.
+- Executing multi-variant two-pass experiments (e.g., male, female, nb_label_only).
+- Estimating costs and budget caps.
+
+---
+
+## Mechanistic Metrics Tracked
+
+YentlGuard introduces key metrics to understand the "how" and "why" behind an LLM's triage decisions:
+
+- **ΔM (Token Confidence Margin):** Measures the delta in logprobs/confidence margins between passes.
+- **TAR (Thought Allocation Ratio):** Measures the proportion of reasoning tokens dedicated to processing gender variables versus clinical facts.
+- **CRR (Confidence Recovery Rate):** Determines how much confidence the model recovers when challenged with a distractor prompt vs a genuine clinical prompt. Used heavily to detect model *sycophancy*.
+
+---
 
 ## Installation
 
-Requires Python 3.11+. We recommend using a virtual environment.
+Requires Python 3.11+. We strongly recommend using a virtual environment.
 
 ```bash
 # Clone the repository
@@ -32,11 +80,9 @@ pip install .[dev,notebook,ui]
 
 ## Configuration
 
-YentlGuard requires environment variables for GCP and Arize Phoenix configuration.
+YentlGuard requires environment variables for GCP and Arize Phoenix configuration. Create a `.env` file in the root directory:
 
-Create a `.env` file in the root directory (or export these directly):
-
-```bash
+```env
 # GCP Configuration
 YENTLGUARD_GCP_PROJECT=your-gcp-project-id
 YENTLGUARD_GCP_LOCATION=us-central1
@@ -47,63 +93,64 @@ PHOENIX_API_KEY=your_phoenix_api_key
 PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/your_workspace/ # Or local: http://localhost:6006
 PHOENIX_MCP_ENDPOINT=https://app.phoenix.arize.com/s/your_workspace/
 
-# Default Agent Model
+# Default Evaluation Model
 GEMINI_MODEL=gemini-2.5-pro
 ```
 
-Alternatively, you can edit `yentlguard/config.py` directly, though using environment variables is recommended.
+*(Note: Ensure you have `gcloud auth application-default login` configured for Vertex/BigQuery access).*
 
-## Usage / CLI Commands
+---
+
+## CLI Commands & Workflow
 
 YentlGuard is driven primarily via its CLI: `yentlguard`.
 
-### 1. Seed Prompts
-Seed Arize Phoenix with the default corrective and distractor prompt templates:
+### 1. Start the YentlGuard Agent
+Launch the interactive ADK agent to perform research, run queries, or orchestrate evaluations.
+```bash
+# Open interactive ADK web session/terminal
+yentlguard agent
+
+```
+
+### 2. Seed Prompts
+Seed Arize Phoenix with the default corrective and distractor prompt templates used during the two-pass mechanistic tests:
 ```bash
 yentlguard prompts
 ```
 
-### 2. Generate Baselines
-Populate Phoenix with baseline spans using the `nb_ambiguous` (non-binary ambiguous) vignettes.
+### 3. Generate Baselines
+Populate Phoenix with baseline reasoning spans using the non-binary ambiguous (`nb_ambiguous`) vignettes:
 ```bash
 yentlguard baseline --model gemini-2.5-pro --budget medium
 ```
 
-### 3. Execute Runs
-Execute the two-pass mechanistic runs against specific variants (e.g., male, female, nb_label_only).
+### 4. Execute Runs
+Execute the full two-pass mechanistic runs against specific variants:
 ```bash
 yentlguard run --model gemini-2.5-pro --budget medium --variants male female
 ```
 
-### 4. Analyze & Report
-Pull evaluation data from BigQuery, compute summaries and hypotheses, and write out HTML reports and CSVs.
+### 5. Analyze & Report
+Pull evaluation data from BigQuery, compute summaries and hypotheses (H1-H5), and output detailed HTML/CSV reports:
 ```bash
 yentlguard analyze --experiment-ids <exp_id_1> <exp_id_2> --output results/
 ```
-*(Note: `yentlguard report` is an alias for `yentlguard analyze`)*
+*(Note: `yentlguard report` is a direct alias for `yentlguard analyze`)*
 
-### 5. Launch the ADK Agent
-Start the YentlGuard interactive AI agent.
-```bash
-# Open interactive ADK web session
-yentlguard agent
-
-# Or run a single query
-yentlguard agent --query "Analyze the recent triage run for bias."
-```
+---
 
 ## Development & Testing
 
-If you are developing YentlGuard, you can use the provided tools:
+Tools for contributors modifying YentlGuard:
 
 - **Linting & Formatting:** `ruff check .`
 - **Type Checking:** `mypy .`
 - **Testing:** `pytest tests/`
+- **Database Migrations:** `python -m yentlguard.eval.schema`
 
-## License
-
+##  License
 This project is licensed under the MIT License.
 
 ## Authors
-
 - Inna Rytsareva (<inna@harmonilab.org>)
