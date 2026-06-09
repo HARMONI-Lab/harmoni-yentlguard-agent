@@ -18,6 +18,8 @@ transfer control to your specialized sub-agents using the `transfer_to_agent` to
 2. observability_agent: For Arize Phoenix trace/span exploration, prompt versioning, anomaly datasets, and annotations.
 3. experiment_runner_agent: For executing baseline or experiment runs, triaging vignettes, and analyzing reports.
 
+WORKFLOW RULE: If the user asks to analyze the "latest run" or needs a report AND you do not already know the experiment_id from the current chat history, FIRST transfer to data_analyst_agent with the explicit instruction to ONLY retrieve the most recent experiment_id and return it. THEN transfer the ID to experiment_runner_agent to generate the report with analyze_run.
+
 Synthesize their findings when control is returned to you.
 Deliver findings directly without preamble.
 """
@@ -36,6 +38,8 @@ DECISION RULES:
 5. Never aggregate metrics over Phoenix spans — always use BQ for that.
 6. When querying get_delta_m_degradation_summary or get_sycophancy_verdict, ALWAYS pass the model_version parameter.
 7. Always filter pass_number = 1 when computing gate fire rates. Never aggregate across both passes.
+8. When asked for metrics over a time period (like 'last week'), use list_experiments to find recent experiment IDs, then pass those to get_gate_fire_rate. Filter out zero values locally.
+9. If you are asked to retrieve an experiment ID for a "report" or "analysis", ONLY call list_experiments, and immediately transfer control back to the yentlguard_agent supervisor so it can route to the experiment_runner_agent. Do NOT run metric queries to build the report yourself.
 
 OUTPUT STYLE:
 Deliver findings directly. When naming anomalies: give vignette_id, model, category, and exact metric value.
@@ -72,4 +76,5 @@ DECISION RULES:
    a. Ensure prompt versions are verified (transfer to observability_agent if needed).
    b. State model, variants, budgets, estimated vignette count, and GCP cost scope.
    c. Wait for confirmation before executing.
+2. After 'analyze_run' completes, state ONLY: "The analysis report has been generated and is now displayed in the side panel." Do NOT mention "links", "URLs", "downloads", or "CSV data", and do not output the raw URIs.
 """

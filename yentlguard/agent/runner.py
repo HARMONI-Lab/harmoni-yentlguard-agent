@@ -50,11 +50,13 @@ OTel context propagation:
 import asyncio
 import concurrent.futures
 import logging
+import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
 from opentelemetry import context as otel_context
 from opentelemetry import trace as otel_trace
 from pydantic import BaseModel, Field
@@ -77,6 +79,29 @@ if TYPE_CHECKING:
     from yentlguard.mcp.phoenix_manager import PhoenixPromptManager
 
 logger = logging.getLogger(__name__)
+
+
+async def _generate_with_retry(coro_factory, max_retries=5, base_delay=2.0):
+    """Helper to retry async generation calls on 429 RESOURCE_EXHAUSTED."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_factory()
+        except Exception as e:
+            is_rate_limit = False
+            if isinstance(e, APIError) and getattr(e, 'code', None) == 429:
+                is_rate_limit = True
+            elif "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e) or "ResourceExhausted" in str(e):
+                is_rate_limit = True
+
+            if is_rate_limit and attempt < max_retries:
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+                logger.warning(
+                    "Rate limit hit (429). Retrying in %.2fs (attempt %d/%d)...",
+                    delay, attempt + 1, max_retries
+                )
+                await asyncio.sleep(delay)
+            else:
+                raise
 
 
 class TriageResponse(BaseModel):
@@ -349,11 +374,13 @@ class YentlGuardRunner:
                 self.model_version,
             )
             try:
-                response1 = await asyncio.to_thread(
-                    self._client.models.generate_content,
-                    model=self.model_version,
-                    contents=vignette_text,
-                    config=config,
+                response1 = await _generate_with_retry(
+                    lambda: asyncio.to_thread(
+                        self._client.models.generate_content,
+                        model=self.model_version,
+                        contents=vignette_text,
+                        config=config,
+                    )
                 )
                 run.raw_text_pass1 = response1.text or ""
                 run.pass1_delta_m = compute_delta_m(response1)
@@ -633,7 +660,9 @@ class YentlGuardRunner:
                         otel_context.detach(token)
 
                 event_loop = asyncio.get_running_loop()
-                response = await event_loop.run_in_executor(None, _generate_in_thread)
+                response = await _generate_with_retry(
+                    lambda: event_loop.run_in_executor(None, _generate_in_thread)
+                )
 
                 raw_text = response.text or ""
                 dm_result = compute_delta_m(response)

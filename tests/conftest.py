@@ -39,6 +39,7 @@ if not _is_preflight:
         # OpenTelemetry core
         "opentelemetry",
         "opentelemetry.trace",
+        "opentelemetry.context",
         # OpenTelemetry SDK
         "opentelemetry.sdk",
         "opentelemetry.sdk.trace",
@@ -54,6 +55,7 @@ if not _is_preflight:
         "google",
         "google.genai",
         "google.genai.types",
+        "google.genai.errors",
         "google.cloud",
         "google.cloud.bigquery",
         # Vertex AI
@@ -98,6 +100,12 @@ if not _is_preflight:
     _trace.Span = MagicMock  # annotation.py imports Span as a type
     _trace.NonRecordingSpan = MagicMock()
 
+    # opentelemetry.context stub
+    _ctx = sys.modules["opentelemetry.context"]
+    _ctx.get_current = MagicMock(return_value=MagicMock())
+    _ctx.attach = MagicMock(return_value=MagicMock())
+    _ctx.detach = MagicMock()
+
     # yentlguard.config stub — must be registered before yentlguard submodules import it
     import types as _types
 
@@ -119,6 +127,12 @@ if not _is_preflight:
     _genai_types = sys.modules["google.genai.types"]
     _genai_types.ThinkingConfig = MagicMock(return_value=MagicMock())
     _genai_types.GenerateContentConfig = MagicMock(return_value=MagicMock())
+    _genai_types.GenerateContentResponse = MagicMock
+
+    _genai_errors = sys.modules["google.genai.errors"]
+    class DummyAPIError(Exception):
+        pass
+    _genai_errors.APIError = DummyAPIError
 
     # google.cloud.bigquery stubs
     _bq = sys.modules["google.cloud.bigquery"]
