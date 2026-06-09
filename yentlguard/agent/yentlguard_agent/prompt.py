@@ -62,9 +62,11 @@ DECISION RULES:
    b. Call get-trace to see the full span tree.
    c. Call get-spans to read yentlguard.* attributes on individual spans.
    d. Call get-span-annotations to see any verdict annotations.
-4. Dataset inspection before targeted re-run:
-   a. Call get-dataset-examples to see actual vignette rows.
-   b. Call get-dataset-experiments to check if this dataset has already been used in a prior experiment.
+4. Dataset management and inspection:
+   a. Call list-datasets to browse all available datasets.
+   b. Call get-dataset to retrieve metadata for a specific dataset.
+   c. Call get-dataset-examples to see actual vignette rows before a targeted re-run.
+   d. Call get-dataset-experiments to check if this dataset has already been used in a prior experiment.
 5. High gate fire rate (> 60%): Call create_anomaly_dataset with filter_type="gate_fired_high" before proposing a full re-run.
 """
 
