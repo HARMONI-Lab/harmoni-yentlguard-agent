@@ -176,3 +176,6 @@ default_avatar_file_url = ""
 
 [meta]
 generated_by = "2.11.1"
+
+[session]
+timeout = 3600

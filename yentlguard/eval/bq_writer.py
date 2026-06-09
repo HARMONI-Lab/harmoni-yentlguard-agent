@@ -298,8 +298,12 @@ class BQWriter:
             dlq_lines = [json.dumps(row, default=str) for row in self._buffer]
             dlq_content = "\n".join(dlq_lines) + "\n"
             
+            bucket = self._gcs_client.bucket(self.bucket_name)
+            if not bucket.exists():
+                bucket.create()
+            
             blob_name = f"dlq/yentlguard_dlq_{self.experiment_id}_{uuid.uuid4().hex[:8]}.jsonl"
-            blob = self._gcs_client.bucket(self.bucket_name).blob(blob_name)
+            blob = bucket.blob(blob_name)
             blob.upload_from_string(dlq_content, content_type="application/jsonl")
             
             dlq_uri = f"gs://{self.bucket_name}/{blob_name}"
@@ -353,8 +357,13 @@ class BQWriter:
             self.dlq_count += 1
             
             dlq_content = json.dumps({"table": "experiments", "row": row}, default=str) + "\n"
+            
+            bucket = self._gcs_client.bucket(self.bucket_name)
+            if not bucket.exists():
+                bucket.create()
+
             blob_name = f"dlq/yentlguard_dlq_expt_{self.experiment_id}_{uuid.uuid4().hex[:8]}.jsonl"
-            blob = self._gcs_client.bucket(self.bucket_name).blob(blob_name)
+            blob = bucket.blob(blob_name)
             blob.upload_from_string(dlq_content, content_type="application/jsonl")
             
             dlq_uri = f"gs://{self.bucket_name}/{blob_name}"

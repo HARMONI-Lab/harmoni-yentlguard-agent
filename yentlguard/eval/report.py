@@ -430,7 +430,10 @@ _TAR_UNDEFINED_NOTE = (
 
 def _upload_to_gcs(content: bytes, blob_name: str, bucket_name: str, content_type: str) -> str:
     client = gcs.Client()
-    blob = client.bucket(bucket_name).blob(blob_name)
+    bucket = client.bucket(bucket_name)
+    if not bucket.exists():
+        bucket.create()
+    blob = bucket.blob(blob_name)
     blob.upload_from_string(content, content_type=content_type)
     return f"gs://{bucket_name}/{blob_name}"
 

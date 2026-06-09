@@ -104,6 +104,14 @@ _WELCOME_HTML = """<!doctype html>
 </html>"""
 
 
+_SAMPLES_MARKDOWN = """- *List available Phoenix datasets*
+- *What are the non-zero gate fire rates for the last week?*
+- *Generate a sycophancy verdict for the non-zero gate fire rates for the last week.*
+- *Run a test for gemini-2.5-flash with low thinking budget for male vignettes.*
+- *Create an anomaly dataset with likely sycophancy verdicts for the latest run.*
+- *Generate a full analysis report for the latest run.*
+"""
+
 # -- Render helpers: draw ONLY, never write session state ----------------------
 async def _render_welcome() -> None:
     el = cl.CustomElement(
@@ -111,8 +119,9 @@ async def _render_welcome() -> None:
         props={"html": _WELCOME_HTML, "src": "", "title": "Welcome", "timestamp": ""},
         display="side",
     )
+    samples_el = cl.Text(name="Sample Requests", content=_SAMPLES_MARKDOWN, display="side")
     await cl.ElementSidebar.set_title("ABOUT YENTLGUARD")
-    await cl.ElementSidebar.set_elements([el], key=f"welcome-{uuid4().hex[:8]}")
+    await cl.ElementSidebar.set_elements([samples_el, el], key=f"welcome-{uuid4().hex[:8]}")
 
 
 async def _render_uri(report_uri: str) -> None:
@@ -147,8 +156,9 @@ async def _render_uri(report_uri: str) -> None:
         },
         display="side",
     )
+    samples_el = cl.Text(name="Sample Requests", content=_SAMPLES_MARKDOWN, display="side")
     await cl.ElementSidebar.set_title("ANALYSIS REPORT")
-    await cl.ElementSidebar.set_elements([el], key=f"report-{uuid4().hex[:8]}")
+    await cl.ElementSidebar.set_elements([samples_el, el], key=f"report-{uuid4().hex[:8]}")
 
 
 async def _render_path(report_path: Path) -> None:
@@ -165,8 +175,9 @@ async def _render_path(report_path: Path) -> None:
         },
         display="side",
     )
+    samples_el = cl.Text(name="Sample Requests", content=_SAMPLES_MARKDOWN, display="side")
     await cl.ElementSidebar.set_title("ANALYSIS REPORT")
-    await cl.ElementSidebar.set_elements([el], key=f"report-{uuid4().hex[:8]}")
+    await cl.ElementSidebar.set_elements([samples_el, el], key=f"report-{uuid4().hex[:8]}")
 
 
 # -- The ONE entry point. Everything goes through here. ------------------------
