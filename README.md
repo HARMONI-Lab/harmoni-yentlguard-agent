@@ -87,6 +87,7 @@ YentlGuard requires environment variables for GCP and Arize Phoenix configuratio
 YENTLGUARD_GCP_PROJECT=your-gcp-project-id
 YENTLGUARD_GCP_LOCATION=us-central1
 YENTLGUARD_BQ_DATASET=your-bq-dataset-id
+YENTLGUARD_GCS_BUCKET=your-gcs-bucket-name
 
 # Arize Phoenix Configuration
 PHOENIX_API_KEY=your_phoenix_api_key
@@ -98,6 +99,54 @@ GEMINI_MODEL=gemini-2.5-pro
 ```
 
 *(Note: Ensure you have `gcloud auth application-default login` configured for Vertex/BigQuery access).*
+
+---
+
+## Infrastructure Setup
+
+To successfully run experiments and use the UI, follow these steps to provision the necessary infrastructure.
+
+### 1. Google Cloud Platform (GCP) Preparation
+*   **Enable APIs:** Ensure the **Vertex AI API**, **BigQuery API**, and **Cloud Storage API** are enabled in your GCP project.
+*   **Authentication:** Set up your environment with Application Default Credentials so the CLI scripts can access GCP:
+    ```bash
+    gcloud auth application-default login
+    gcloud config set project <your-project-id>
+    ```
+
+### 2. Automated Infrastructure Provisioning (BigQuery & GCS)
+*   **BigQuery Automation:** YentlGuard includes a schema migration script to automatically provision the required BigQuery dataset and tables. Run:
+    ```bash
+    python -m yentlguard.eval.schema
+    ```
+*   **Cloud Storage (Optional but Recommended):** The GCS bucket (defined by `YENTLGUARD_GCS_BUCKET` in `.env`) is used to store analysis reports and dead-letter queues. 
+    ```bash
+    gsutil mb -l us-central1 gs://<your-bucket-name>
+    ```
+
+### 3. Arize Phoenix Configuration
+*   **Hosting:** You can use [Arize Cloud](https://app.phoenix.arize.com/) or run a local instance: `docker run -p 6006:6006 arizeai/phoenix`.
+*   **MCP Requirements:** Running the YentlGuard agent locally requires Node.js installed on your system to support the `@arizeai/phoenix-mcp` package (as indicated in the provided Dockerfile).
+
+### 4. Dataset Management in Phoenix
+Phoenix needs to know about your vignettes to trace the experiments correctly.
+*   **Upload Corpus & Prompts:** Use the included setup script to push both your YentlBench dataset (`dataset_quintets.csv`) and the default prompt templates to Phoenix in one command:
+    ```bash
+    python -m yentlguard.mcp.setup_phoenix --dataset dataset_output/dataset_quintets.csv
+    ```
+*   **Creating Splits (Crucial Manual UI Step):** Open the Phoenix UI, navigate to the `yentlbench-quintets-all-variants` dataset, click on the **Splits** tab, and manually assign the data into splits based on the demographic variants (e.g., `nb_ambiguous`, `male`, `female`, `nb_label_only`). 
+
+
+### 5. Deploying the YentlGuard UI (Cloud Run)
+YentlGuard provides a `cloudbuild.yaml` file to deploy the Chainlit UI directly to Google Cloud Run.
+*   **Store Secrets:** First, save your Phoenix API key to GCP Secret Manager:
+    ```bash
+    gcloud secrets create PHOENIX_API_KEY --replication-policy="automatic" --data-file=- <<< "your-api-key"
+    ```
+*   **Deploy:** Run the build and deployment process:
+    ```bash
+    gcloud builds submit --config cloudbuild.yaml
+    ```
 
 ---
 
@@ -122,13 +171,13 @@ yentlguard prompts
 ### 3. Generate Baselines
 Populate Phoenix with baseline reasoning spans using the non-binary ambiguous (`nb_ambiguous`) vignettes:
 ```bash
-yentlguard baseline --model gemini-2.5-pro --budget medium
+yentlguard baseline --model gemini-2.5-flash --budget medium
 ```
 
 ### 4. Execute Runs
 Execute the full two-pass mechanistic runs against specific variants:
 ```bash
-yentlguard run --model gemini-2.5-pro --budget medium --variants male female
+yentlguard run --model gemini-2.5-flash --budget medium --variants female
 ```
 
 ### 5. Analyze & Report
