@@ -69,6 +69,8 @@ from __future__ import annotations
 import logging
 import os
 
+from openai import api_key, base_url
+
 logger = logging.getLogger(__name__)
 
 # Full tool filter — every tool the YentlGuard agent should be able to call.
@@ -133,10 +135,7 @@ def build_phoenix_mcp_toolset():
     base_url = raw.split("/v1/")[0].rstrip("/")
 
     try:
-        from google.adk.tools.mcp_tool import McpToolset
-        from google.adk.tools.mcp_tool.mcp_session_manager import (
-            StdioConnectionParams,
-        )
+        from google.adk.tools.mcp_tool.mcp_toolset import StdioConnectionParams, McpToolset
         from mcp import StdioServerParameters
     except ImportError as e:
         logger.warning("google-adk not installed — Phoenix MCP toolset disabled: %s", e)
@@ -151,16 +150,10 @@ def build_phoenix_mcp_toolset():
     return McpToolset(
         connection_params=StdioConnectionParams(
             server_params=StdioServerParameters(
-                command="npx",
-                args=[
-                    "-y",
-                    "@arizeai/phoenix-mcp@latest",
-                    "--baseUrl",
-                    base_url,
-                    "--apiKey",
-                    api_key,
-                ],
-            )
+                command="phoenix-mcp",
+                args=["--baseUrl", base_url, "--apiKey", api_key],
+            ),
+            timeout=60,
         ),
         tool_filter=PHOENIX_MCP_TOOL_FILTER,
     )
