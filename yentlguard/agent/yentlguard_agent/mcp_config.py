@@ -1,7 +1,7 @@
 """
 Phoenix MCP toolset configuration for the YentlGuard ADK agent.
 
-@arizeai/phoenix-mcp runs as a Node child process launched via npx.
+@arizeai/phoenix-mcp launched as the pre-installed phoenix-mcp binary; requires Node.js in the image.
 ADK manages the subprocess lifecycle through StdioConnectionParams.
 
 Requires: Node.js + npx in PATH.
@@ -69,8 +69,6 @@ from __future__ import annotations
 import logging
 import os
 
-from openai import api_key, base_url
-
 logger = logging.getLogger(__name__)
 
 # Full tool filter — every tool the YentlGuard agent should be able to call.
@@ -116,7 +114,7 @@ PHOENIX_MCP_TOOL_FILTER: list[str] = [
 def build_phoenix_mcp_toolset():
     """
     Return a configured McpToolset for @arizeai/phoenix-mcp, or None if
-    PHOENIX_API_KEY is not set or Node/npx is unavailable.
+    PHOENIX_API_KEY is not set or Node is unavailable.
     """
     api_key = os.environ.get("PHOENIX_API_KEY", "").strip()
     if not api_key:
