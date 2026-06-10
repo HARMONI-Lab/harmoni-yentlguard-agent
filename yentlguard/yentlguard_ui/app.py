@@ -32,6 +32,10 @@ from uuid import uuid4
 
 import chainlit as cl
 from google.cloud import storage as gcs
+from chainlit.server import sio
+
+sio.eio.ping_timeout = 600   
+sio.eio.ping_interval = 25
 
 # Triple-backtick fence built without literal backticks (keeps this file easy to
 # embed in docs); functionally identical to a normal code fence.
