@@ -8,7 +8,7 @@ Report loading model
 A single session variable `current_report` is the source of truth for what is
 shown in the sidebar. Its value is one of:
   • "welcome"                  -> the welcome screen
-  • a gs:// or https:// URI    -> a report served through the proxy route
+  • a gs:// or https:// URI    -> a report fetched from GCS
   • a local file path string   -> a report read from disk (mock mode)
 
 Everything goes through `show_report(target)`, which is idempotent: if `target`
@@ -19,7 +19,9 @@ draw; they never touch session state, so the two can't drift apart.
 Run:    PYTHONPATH=.. chainlit run app.py
 """
 
+import ast
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -31,11 +33,25 @@ from pathlib import Path
 from uuid import uuid4
 
 import chainlit as cl
+from chainlit.server import app as cl_app
+from fastapi import Response
 from google.cloud import storage as gcs
-from chainlit.server import sio
 
-sio.eio.ping_timeout = 600   
-sio.eio.ping_interval = 25
+_REPORT_BUCKET = os.environ.get("YENTLGUARD_BUCKET", "yentlguard-analysis")
+_REPORT_PREFIX = os.environ.get("YENTLGUARD_REPORT_PREFIX", "reports/")
+
+@functools.lru_cache(maxsize=1)
+def _get_gcs_client():
+    return gcs.Client()
+
+def _parse_storage_uri(report_uri: str) -> tuple[str, str]:
+    """Return (bucket, blob) for gs:// or https://storage.googleapis.com/ URIs."""
+    if report_uri.startswith("gs://"):
+        _, _, bucket_name, *parts = report_uri.split("/")
+    else:
+        path = report_uri[len("https://storage.googleapis.com/"):]
+        bucket_name, *parts = path.split("/")
+    return bucket_name, "/".join(parts)
 
 # Triple-backtick fence built without literal backticks (keeps this file easy to
 # embed in docs); functionally identical to a normal code fence.
@@ -57,18 +73,19 @@ except ImportError:
     _runner = None
     _ADK_AVAILABLE = False
 
-from chainlit.server import app as cl_app
-from fastapi import Response
-
 
 @cl_app.get("/report-proxy/{bucket_name}/{blob_name:path}")
 async def proxy_report(bucket_name: str, blob_name: str):
     """Proxy HTML reports from GCS to bypass Chainlit websocket size limits and CORS/Iframe restrictions."""
     logger.info("[ui] proxy_report: GET bucket=%s blob=%s", bucket_name, blob_name)
+    # Only ever serve the configured report bucket + prefix.
+    if bucket_name != _REPORT_BUCKET or not blob_name.startswith(_REPORT_PREFIX):
+        logger.warning("[ui] proxy_report: REJECTED bucket=%s blob=%s", bucket_name, blob_name)
+        return Response(content="Not found", status_code=404)
     try:
-        client = gcs.Client()
-        blob = client.bucket(bucket_name).blob(blob_name)
-        content = blob.download_as_string()
+        content = await asyncio.to_thread(
+            lambda: _get_gcs_client().bucket(bucket_name).blob(blob_name).download_as_string()
+        )
         logger.info("[ui] proxy_report: served %d bytes for %s", len(content), blob_name)
         return Response(content=content, media_type="text/html")
     except Exception as e:
@@ -108,6 +125,17 @@ _WELCOME_HTML = """<!doctype html>
 </html>"""
 
 
+@cl.set_starters
+async def set_starters():
+    return [
+        cl.Starter(label="List datasets", message="List available Phoenix datasets", icon="/public/favicon.ico"),
+        cl.Starter(label="Gate fire rates", message="What are the non-zero gate fire rates for the last week?", icon="/public/favicon.ico"),
+        cl.Starter(label="Sycophancy verdict", message="Generate a sycophancy verdict for the non-zero gate fire rates for the last week.", icon="/public/favicon.ico"),
+        cl.Starter(label="Run experiment", message="Run a test for gemini-2.5-flash with low thinking budget for male vignettes.", icon="/public/favicon.ico"),
+        cl.Starter(label="Anomaly dataset", message="Create an anomaly dataset with likely sycophancy verdicts for the latest run.", icon="/public/favicon.ico"),
+        cl.Starter(label="Generate report", message="Generate a full analysis report for the latest run.", icon="/public/favicon.ico"),
+    ]
+
 _SAMPLES_MARKDOWN = """### Sample Requests
 - *List available Phoenix datasets*
 - *What are the non-zero gate fire rates for the last week?*
@@ -118,71 +146,40 @@ _SAMPLES_MARKDOWN = """### Sample Requests
 """
 
 # -- Render helpers: draw ONLY, never write session state ----------------------
-async def _render_welcome() -> None:
+async def _render_html(html: str, *, title: str, timestamp: str) -> None:
     el = cl.CustomElement(
         name="ReportViewer",
-        props={"html": _WELCOME_HTML, "src": "", "title": "Welcome", "timestamp": ""},
+        props={"html": html, "src": "", "title": title, "timestamp": timestamp},
         display="side",
     )
     samples_el = cl.Text(name="Sample Requests", content=_SAMPLES_MARKDOWN, display="side")
-    await cl.ElementSidebar.set_title("ABOUT YENTLGUARD")
-    await cl.ElementSidebar.set_elements([samples_el, el], key=f"welcome-{uuid4().hex[:8]}")
+    await cl.ElementSidebar.set_title("ANALYSIS REPORT" if title != "Welcome" else "ABOUT YENTLGUARD")
+    key_prefix = "welcome" if title == "Welcome" else "report"
+    await cl.ElementSidebar.set_elements([samples_el, el], key=f"{key_prefix}-{uuid4().hex[:8]}")
 
+async def _render_welcome() -> None:
+    await _render_html(_WELCOME_HTML, title="Welcome", timestamp="")
 
 async def _render_uri(report_uri: str) -> None:
-    if report_uri.startswith("gs://"):
-        _, _, bucket_name, *parts = report_uri.split("/")
-    else:  # https://storage.googleapis.com/...
-        path = report_uri[len("https://storage.googleapis.com/"):]
-        bucket_name, *parts = path.split("/")
-    blob_name = "/".join(parts)
+    bucket_name, blob_name = _parse_storage_uri(report_uri)
     logger.info("[ui] _render_uri: uri=%s -> bucket=%s blob=%s", report_uri, bucket_name, blob_name)
-
-    # Download the report HTML in-process and hand it to ReportViewer via the
-    # `html` prop -- the SAME path the welcome screen uses. We deliberately do
-    # NOT point an iframe at /report-proxy/... : that relative URL resolves
-    # against the Chainlit app's own origin and is shadowed by Chainlit's SPA
-    # catch-all route, so the iframe just reloads the whole app -- which is the
-    # infinite "windows inside windows" nesting.
     try:
-        html = gcs.Client().bucket(bucket_name).blob(blob_name).download_as_text()
+        html = await asyncio.to_thread(
+            lambda: _get_gcs_client().bucket(bucket_name).blob(blob_name).download_as_text()
+        )
         logger.info("[ui] _render_uri: downloaded %d chars for %s", len(html), blob_name)
     except Exception as e:
         logger.exception("[ui] _render_uri: FAILED to download %s: %s", blob_name, e)
-        html = "<p style='color:#e6edf3;font-family:sans-serif;padding:24px'>Failed to load report: " + str(e) + "</p>"
-
-    el = cl.CustomElement(
-        name="ReportViewer",
-        props={
-            "html": html,
-            "src": "",
-            "title": "Analysis Report",
-            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        },
-        display="side",
-    )
-    samples_el = cl.Text(name="Sample Requests", content=_SAMPLES_MARKDOWN, display="side")
-    await cl.ElementSidebar.set_title("ANALYSIS REPORT")
-    await cl.ElementSidebar.set_elements([samples_el, el], key=f"report-{uuid4().hex[:8]}")
-
+        import html as _h
+        html = f"<p style='color:#e6edf3;font-family:sans-serif;padding:24px'>Failed to load report: {_h.escape(str(e))}</p>"
+    await _render_html(html, title="Analysis Report",
+                       timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"))
 
 async def _render_path(report_path: Path) -> None:
-    html = report_path.read_text(encoding="utf-8")
-    el = cl.CustomElement(
-        name="ReportViewer",
-        props={
-            "html": html,
-            "src": "",
-            "title": report_path.stem.replace("yentlguard_analysis_", "Analysis "),
-            "timestamp": datetime.fromtimestamp(
-                report_path.stat().st_mtime, tz=timezone.utc
-            ).strftime("%Y-%m-%d %H:%M UTC"),
-        },
-        display="side",
-    )
-    samples_el = cl.Text(name="Sample Requests", content=_SAMPLES_MARKDOWN, display="side")
-    await cl.ElementSidebar.set_title("ANALYSIS REPORT")
-    await cl.ElementSidebar.set_elements([samples_el, el], key=f"report-{uuid4().hex[:8]}")
+    html = await asyncio.to_thread(report_path.read_text, encoding="utf-8")
+    ts = datetime.fromtimestamp(report_path.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    title = report_path.stem.replace("yentlguard_analysis_", "Analysis ")
+    await _render_html(html, title=title, timestamp=ts)
 
 
 # -- The ONE entry point. Everything goes through here. ------------------------
@@ -219,35 +216,27 @@ async def show_report(target: str | None) -> None:
     logger.info("[ui] show_report: current_report=%r", target)
 
 
-# GCS location of generated reports (override via env if your bucket differs).
-_REPORT_BUCKET = os.environ.get("YENTLGUARD_BUCKET", "yentlguard-analysis")
-_REPORT_PREFIX = os.environ.get("YENTLGUARD_REPORT_PREFIX", "reports/")
-
-
-def _latest_gcs_report() -> str | None:
+async def _latest_gcs_report() -> str | None:
     """Return the https URL of the newest .html report in the GCS bucket, or
     None if the bucket has no reports yet. Reports live only in GCS
     (gs://<bucket>/reports/...), so this is what the welcome screen uses to
     auto-load the most recent report on startup.
     """
     try:
-        client = gcs.Client()
-        blobs = [
-            b for b in client.list_blobs(_REPORT_BUCKET, prefix=_REPORT_PREFIX)
-            if b.name.endswith(".html")
-        ]
+        blobs = await asyncio.to_thread(
+            lambda: [
+                b for b in _get_gcs_client().list_blobs(_REPORT_BUCKET, prefix=_REPORT_PREFIX)
+                if b.name.endswith(".html")
+            ]
+        )
         if not blobs:
             logger.warning("[ui] _latest_gcs_report: NO .html reports under gs://%s/%s",
                            _REPORT_BUCKET, _REPORT_PREFIX)
             return None
         latest = max(blobs, key=lambda b: (b.updated or b.time_created, b.name))
-        # Build the public https URL by concatenation (no f-string) so there is
-        # no chance of a brace-escaping mistake. _render_uri proxies it.
         report_url = "https://storage.googleapis.com/" + _REPORT_BUCKET + "/" + latest.name
         logger.info("[ui] _latest_gcs_report: %d report(s); latest=%s", len(blobs), report_url)
         return report_url
-        # (superseded) url = f"https://storage.googleapis.com/{_REPORT_BUCKET}/{latest.name}"
-        # (superseded) return f"https://storage.googleapis.com/{_REPORT_BUCKET}/{latest.name}"
     except Exception as e:
         logger.exception("[ui] _latest_gcs_report: FAILED to list bucket %s: %s",
                          _REPORT_BUCKET, e)
@@ -257,10 +246,10 @@ def _latest_gcs_report() -> str | None:
 # -- Metric extraction ---------------------------------------------------------
 _METRIC_PATTERNS = {
     "delta_m": re.compile(r"\u0394M[=:\s]+([0-9.]+)"),
-    "crr":     re.compile(r"CRR[=:\s]+([0-9.]+)"),
-    "tar":     re.compile(r"TAR[=:\s]+([0-9.]+)"),
-    "gap":     re.compile(r"gap[=:\s]+([0-9.]+)"),
-    "delta_m_degradation": re.compile(r"delta_m_degradation[=:\s]+([0-9.]+)"),
+    "crr":     re.compile(r"\bCRR[=:\s]+([0-9.]+)"),
+    "tar":     re.compile(r"\bTAR[=:\s]+([0-9.]+)"),
+    "gap":     re.compile(r"\bgap[=:\s]+([0-9.]+)"),
+    "delta_m_degradation": re.compile(r"\bdelta_m_degradation[=:\s]+([0-9.]+)"),
 }
 
 
@@ -284,7 +273,13 @@ def _find_report_uri(raw) -> str | None:
     """
     if not raw:
         return None
-    text = raw if isinstance(raw, str) else json.dumps(raw)
+    if isinstance(raw, str):
+        text = raw
+    else:
+        try:
+            text = json.dumps(raw)
+        except (TypeError, ValueError):
+            text = str(raw)
     matches = _REPORT_URL_RE.findall(text)
     if not matches:
         return None
@@ -407,8 +402,6 @@ def _get_tool_args(event):
 
 
 def _get_tool_result(event):
-    import json
-
     def _to_str(val):
         if isinstance(val, (dict, list)):
             return json.dumps(val)
@@ -446,6 +439,18 @@ def _get_text_parts(event):
     return texts
 
 
+def _get_call_id(event):
+    if hasattr(event, "content") and event.content:
+        for part in getattr(event.content, "parts", []):
+            fc = getattr(part, "function_call", None)
+            if fc is not None:
+                return getattr(fc, "id", None)
+            fr = getattr(part, "function_response", None)
+            if fr is not None:
+                return getattr(fr, "id", None)
+    return None
+
+
 def _get_author(event):
     return getattr(event, "author", None)
 
@@ -470,7 +475,7 @@ async def on_start():
         )
 
     # Auto-load the latest report from the GCS bucket; else show welcome.
-    startup_target = _latest_gcs_report() or "welcome"
+    startup_target = await _latest_gcs_report() or "welcome"
     logger.info("[ui] on_start: session=%s startup_target=%r", session_id, startup_target)
     await show_report(startup_target)
 
@@ -497,7 +502,7 @@ async def on_message(message: cl.Message):
         try:
             await flow_el.update()
         except Exception:
-            pass
+            logger.debug("[ui] _refresh_flow: update failed", exc_info=True)
 
     orchestration = cl.Step(name="\u25c6 ORCHESTRATION", type="run")
     await orchestration.send()
@@ -551,7 +556,7 @@ async def on_message(message: cl.Message):
             await step.send()
             try:
                 step.input = (f"{_FENCE}json\n{json.dumps(args, indent=2)}\n{_FENCE}"
-                              if args else "\u2014")
+                              if args else "—")
             except Exception:
                 step.input = str(args or "")
             await step.update()
@@ -560,11 +565,17 @@ async def on_message(message: cl.Message):
                              status="running", duration=None)
             flow_state["tools"] += 1
             await _refresh_flow()
+            call_id = _get_call_id(event)
             open_tools.append({"step": step, "tool": tool_name,
-                               "t0": time.monotonic(), "ev": ev})
+                               "t0": time.monotonic(), "ev": ev, "call_id": call_id})
 
         if tool_result and open_tools:
-            entry = open_tools.pop()
+            result_id = _get_call_id(event)
+            entry = next((e for e in reversed(open_tools) if e["call_id"] is not None and e["call_id"] == result_id), None)
+            if entry is not None:
+                open_tools.remove(entry)
+            else:
+                entry = open_tools.pop()  # fallback: assume LIFO
             step = entry["step"]
             dur = time.monotonic() - entry["t0"]
             step.output = f"{_FENCE}\n{_format_tool_output(tool_result)}\n{_FENCE}"
@@ -576,7 +587,6 @@ async def on_message(message: cl.Message):
 
             if entry["tool"] == "analyze_run":
                 try:
-                    import json, ast
                     try:
                         data = json.loads(tool_result)
                     except json.JSONDecodeError:
@@ -686,7 +696,7 @@ report panel demonstrates end-to-end without GCP credentials.</p>
 def _write_demo_report() -> Path:
     mock_dir = Path("yentlguard_analysis")
     mock_dir.mkdir(exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     out = mock_dir / f"yentlguard_analysis_{ts}.html"
     out.write_text(_DEMO_REPORT_HTML, encoding="utf-8")
     return out
@@ -707,7 +717,7 @@ async def _handle_mock(query: str):
         try:
             await flow_el.update()
         except Exception:
-            pass
+            logger.debug("[ui] _refresh: update failed", exc_info=True)
 
     orchestration = cl.Step(name="\u25c6 ORCHESTRATION", type="run")
     await orchestration.send()
