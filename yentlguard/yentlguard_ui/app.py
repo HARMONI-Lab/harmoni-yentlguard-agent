@@ -33,9 +33,12 @@ from pathlib import Path
 from uuid import uuid4
 
 import chainlit as cl
-from chainlit.server import app as cl_app
+from chainlit.server import app as cl_app, sio          
 from fastapi import Response
 from google.cloud import storage as gcs
+
+sio.eio.ping_timeout = 600     
+sio.eio.ping_interval = 25
 
 _REPORT_BUCKET = os.environ.get("YENTLGUARD_BUCKET", "yentlguard-analysis")
 _REPORT_PREFIX = os.environ.get("YENTLGUARD_REPORT_PREFIX", "reports/")
