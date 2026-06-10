@@ -1,5 +1,5 @@
 steps:
-  # Step 1: Build the Docker image with the correct folder nesting
+  # Step 1: Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build', 
@@ -8,7 +8,7 @@ steps:
       '.'
     ]
 
-  # Step 2: Push the image tags to the correct path
+  # Step 2: Push the image tags to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'push', 
@@ -16,7 +16,7 @@ steps:
       '--all-tags'
     ]
 
-  # Step 3: Deploy the freshly built git commit tag
+  # Step 3: Deploy to Cloud Run with unified settings and fixed Env syntax
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -39,7 +39,7 @@ steps:
     - '--concurrency'
     - '80'
     - '--set-env-vars'
-    -     - 'PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/yentlguard/,PHOENIX_MCP_ENDPOINT=https://app.phoenix.arize.com/s/yentlguard/,GEMINI_MODEL=gemini-2.5-pro,YENTLGUARD_GCP_PROJECT=yentlguard,YENTLGUARD_BQ_DATASET=yentlguard,YENTLGUARD_GCS_BUCKET=yentlguard-analysis,NPM_CONFIG_CACHE=/tmp/.npm'
+    - 'PHOENIX_COLLECTOR_ENDPOINT=https://app.phoenix.arize.com/s/yentlguard/,PHOENIX_MCP_ENDPOINT=https://app.phoenix.arize.com/s/yentlguard/,GEMINI_MODEL=gemini-2.5-pro,YENTLGUARD_GCP_PROJECT=yentlguard,YENTLGUARD_BQ_DATASET=yentlguard,YENTLGUARD_GCS_BUCKET=yentlguard-analysis,NPM_CONFIG_CACHE=/tmp/.npm'
     - '--set-secrets'
     - 'PHOENIX_API_KEY=PHOENIX_API_KEY:latest'
 
