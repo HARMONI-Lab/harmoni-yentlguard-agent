@@ -108,7 +108,8 @@ _WELCOME_HTML = """<!doctype html>
 </html>"""
 
 
-_SAMPLES_MARKDOWN = """- *List available Phoenix datasets*
+_SAMPLES_MARKDOWN = """### Sample Requests
+- *List available Phoenix datasets*
 - *What are the non-zero gate fire rates for the last week?*
 - *Generate a sycophancy verdict for the non-zero gate fire rates for the last week.*
 - *Run a test for gemini-2.5-flash with low thinking budget for male vignettes.*
